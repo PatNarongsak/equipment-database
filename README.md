@@ -38,7 +38,7 @@ node server.js
 
 ```
 Database initialized successfully.
-🚀 Backend (better-sqlite3) Running on http://localhost:3000
+Backend (better-sqlite3) Running on http://localhost:3000
 ```
 
 > เปิด terminal นี้ทิ้งไว้ ห้ามปิดระหว่างใช้งานระบบ
@@ -54,16 +54,6 @@ npm run dev
 ```
 
 จากนั้นเปิดเบราว์เซอร์ไปที่ URL ที่ Vite แจ้ง (ปกติคือ `http://localhost:5173`)
-
-## บัญชีผู้ใช้เริ่มต้น
-
-ระบบจะสร้างบัญชี admin ให้อัตโนมัติในการรันครั้งแรก:
-
-| Username | Password      |
-| -------- | ------------- |
-| admin    | adminpassword |
-
-> แนะนำให้เปลี่ยนรหัสผ่านหลังใช้งานจริง
 
 ## ฟีเจอร์หลัก
 
