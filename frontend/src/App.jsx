@@ -6,16 +6,37 @@ import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
+// สถานะครุภัณฑ์ 5 หมวด (ชื่อเดียวกับไฟล์รายงานสินทรัพย์จากส่วนกลาง)
 const STATUS_LABELS = {
-  available: "มีอยู่",
-  damaged: "เสียหาย",
-  lost: "สูญหาย",
+  ใช้ได้: "ใช้ได้",
+  ชำรุดรอซ่อม: "ชำรุดรอซ่อม",
+  สิ้นสภาพ: "สิ้นสภาพ",
+  ไม่มีให้ตรวจ: "ไม่มีให้ตรวจ",
+  อื่นๆ: "อื่นๆ",
 };
 
+// ใช้ชื่อ class ภาษาอังกฤษแทนค่าสถานะภาษาไทยตอนต่อ CSS class (กันปัญหา class name ที่ไม่ใช่ ASCII)
+const STATUS_CLASS_MAP = {
+  ใช้ได้: "usable",
+  ชำรุดรอซ่อม: "damaged",
+  สิ้นสภาพ: "endoflife",
+  ไม่มีให้ตรวจ: "notinspected",
+  อื่นๆ: "other",
+};
+
+// รายการตัวเลือกสถานะ ใช้ซ้ำได้ทุกจุดที่มี dropdown เลือกสถานะ
+const STATUS_OPTIONS = [
+  "ใช้ได้",
+  "ชำรุดรอซ่อม",
+  "สิ้นสภาพ",
+  "ไม่มีให้ตรวจ",
+  "อื่นๆ",
+];
+
 const ROLE_LABELS = {
-  admin: "Admin",
-  super_admin: "Super Admin",
-  super_super_admin: "Super Super Admin",
+  admin: "ผู้ใช้ทั่วไป",
+  super_admin: "Admin",
+  super_super_admin: "Admin+",
 };
 
 function App() {
@@ -102,7 +123,7 @@ function App() {
     room: "",
     responsible_person: "",
     price: "",
-    status: "available",
+    status: "ใช้ได้",
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -255,13 +276,8 @@ function App() {
   const fetchLogs = async () => {
     setIsLoadingLogs(true);
     try {
-      const res = await fetch(`${API_URL}/logs`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.status === 401 || res.status === 403) {
-        alert("🔒 เซสชันหมดอายุ หรือไม่มีสิทธิ์เข้าถึง");
-        return;
-      }
+      const res = await authFetch("/logs");
+      if (await handleAuthError(res)) return;
       const data = await res.json();
       if (data.success) {
         setLogs(data.data);
@@ -276,13 +292,8 @@ function App() {
   const fetchDeletedItems = async () => {
     setIsLoadingDeleted(true);
     try {
-      const res = await fetch(`${API_URL}/deleted-equipments`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.status === 401 || res.status === 403) {
-        alert("🔒 เซสชันหมดอายุ หรือไม่มีสิทธิ์เข้าถึง");
-        return;
-      }
+      const res = await authFetch("/deleted-equipments");
+      if (await handleAuthError(res)) return;
       const data = await res.json();
       if (data.success) {
         setDeletedItems(data.data);
@@ -307,13 +318,8 @@ function App() {
   const fetchUsers = async () => {
     setIsLoadingUsers(true);
     try {
-      const res = await fetch(`${API_URL}/users`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.status === 401 || res.status === 403) {
-        alert("🔒 เซสชันหมดอายุ หรือไม่มีสิทธิ์เข้าถึง");
-        return;
-      }
+      const res = await authFetch("/users");
+      if (await handleAuthError(res)) return;
       const data = await res.json();
       if (data.success) {
         setUsers(data.data);
@@ -335,19 +341,8 @@ function App() {
     setNewUserError("");
     setIsCreatingUser(true);
     try {
-      const res = await fetch(`${API_URL}/users`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(newUserForm),
-      });
-
-      if (res.status === 401 || res.status === 403) {
-        alert("🔒 เซสชันหมดอายุ หรือไม่มีสิทธิ์เข้าถึง");
-        return;
-      }
+      const res = await authFetchJson("/users", "POST", newUserForm);
+      if (await handleAuthError(res)) return;
 
       const data = await res.json();
       if (res.ok && data.success) {
@@ -370,23 +365,22 @@ function App() {
     );
 
     try {
-      const res = await fetch(`${API_URL}/users/${userId}/role`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ role: newRole }),
+      const res = await authFetchJson(`/users/${userId}/role`, "PATCH", {
+        role: newRole,
       });
+      if (await handleAuthError(res)) {
+        setUsers(previousUsers);
+        return;
+      }
 
       const data = await res.json();
       if (!data.success) {
         setUsers(previousUsers);
-        alert(`❌ ${data.message || "ปรับระดับสิทธิ์ไม่สำเร็จ"}`);
+        alert(`${data.message || "ปรับระดับสิทธิ์ไม่สำเร็จ"}`);
       }
     } catch (err) {
       setUsers(previousUsers);
-      alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
+      alert("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
     }
   };
 
@@ -465,6 +459,42 @@ function App() {
     localStorage.removeItem("role");
   };
 
+  // ---------- API helpers (รวมโค้ดที่เดิมซ้ำกันในทุกจุดที่ยิง request) ----------
+
+  // เรียก fetch พร้อมแนบ Authorization header ให้อัตโนมัติถ้ามี token
+  const authFetch = (endpoint, options = {}) => {
+    const headers = { ...(options.headers || {}) };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return fetch(`${API_URL}${endpoint}`, { ...options, headers });
+  };
+
+  // เหมือน authFetch แต่สำหรับ request ที่ส่ง JSON body (ตั้ง Content-Type + stringify ให้)
+  const authFetchJson = (endpoint, method, body) =>
+    authFetch(endpoint, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  // เช็คว่า response เป็น 401 (เซสชันหมดอายุ) หรือ 403 (ไม่มีสิทธิ์) หรือไม่
+  // คืนค่า true = ควรหยุดทำงานต่อ (จัดการ error ให้แล้ว), false = ไม่ใช่ error สิทธิ์ ทำงานต่อได้ตามปกติ
+  // onPermissionDenied: ถ้าระบุไว้ และเป็น 403 ที่มีข้อความจาก server จะเรียกใช้แทนการ logout อัตโนมัติ
+  const handleAuthError = async (res, { onPermissionDenied } = {}) => {
+    if (res.status !== 401 && res.status !== 403) return false;
+
+    if (res.status === 403 && onPermissionDenied) {
+      const data = await res.json().catch(() => null);
+      if (data?.message) {
+        onPermissionDenied(data.message);
+        return true;
+      }
+    }
+
+    alert("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง");
+    handleLogout();
+    return true;
+  };
+
   // ---------- Change password handler ----------
   const handleChangePassword = async (e) => {
     e.preventDefault();
@@ -481,27 +511,15 @@ function App() {
 
     setIsChangingPassword(true);
     try {
-      const res = await fetch(`${API_URL}/users/change-password`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword,
-        }),
+      const res = await authFetchJson("/users/change-password", "PATCH", {
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
       });
-
-      if (res.status === 401 || res.status === 403) {
-        alert("🔒 เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง");
-        handleLogout();
-        return;
-      }
+      if (await handleAuthError(res)) return;
 
       const data = await res.json();
       if (res.ok && data.success) {
-        alert("✅ เปลี่ยนรหัสผ่านสำเร็จ!");
+        alert("เปลี่ยนรหัสผ่านสำเร็จ!");
         setPasswordForm({
           currentPassword: "",
           newPassword: "",
@@ -544,24 +562,12 @@ function App() {
     };
 
     try {
-      const res = await fetch(`${API_URL}/equipments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.status === 401 || res.status === 403) {
-        alert("🔒 เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง");
-        handleLogout();
-        return;
-      }
+      const res = await authFetchJson("/equipments", "POST", payload);
+      if (await handleAuthError(res)) return;
 
       const data = await res.json();
       if (res.ok && data.success) {
-        alert("✅ บันทึกข้อมูลสำเร็จ!");
+        alert("บันทึกข้อมูลสำเร็จ!");
         setForm({
           serial_number: "",
           name: "",
@@ -570,14 +576,14 @@ function App() {
           room: "",
           responsible_person: "",
           price: "",
-          status: "available",
+          status: "ใช้ได้",
         });
         fetchEquipments();
       } else {
-        alert(`❌ ${data.message || "บันทึกไม่สำเร็จ"}`);
+        alert(`${data.message || "บันทึกไม่สำเร็จ"}`);
       }
     } catch (err) {
-      alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
+      alert("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
     } finally {
       setIsSaving(false);
     }
@@ -587,30 +593,23 @@ function App() {
     if (!window.confirm("คุณต้องการลบรายการนี้ใช่หรือไม่?")) return;
 
     try {
-      const res = await fetch(`${API_URL}/equipments/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch(`/equipments/${id}`, { method: "DELETE" });
 
-      if (res.status === 401 || res.status === 403) {
-        const data = await res.json().catch(() => null);
-        if (res.status === 403 && data?.message) {
-          alert(`🔒 ${data.message}`);
-          return;
-        }
-        alert("🔒 เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง");
-        handleLogout();
+      if (
+        await handleAuthError(res, {
+          onPermissionDenied: (msg) => alert(`${msg}`),
+        })
+      )
         return;
-      }
 
       const data = await res.json();
       if (data.success) {
         fetchEquipments();
       } else {
-        alert(`❌ ${data.message || "ลบไม่สำเร็จ"}`);
+        alert(`${data.message || "ลบไม่สำเร็จ"}`);
       }
     } catch (err) {
-      alert("❌ เกิดข้อผิดพลาดในการลบข้อมูล");
+      alert("เกิดข้อผิดพลาดในการลบข้อมูล");
     }
   };
 
@@ -662,25 +661,18 @@ function App() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/equipments/${editingId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
+      const res = await authFetchJson(
+        `/equipments/${editingId}`,
+        "PATCH",
+        payload,
+      );
 
-      if (res.status === 401 || res.status === 403) {
-        const data = await res.json().catch(() => null);
-        if (res.status === 403 && data?.message) {
-          setEditError(data.message);
-          return;
-        }
-        alert("🔒 เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง");
-        handleLogout();
+      if (
+        await handleAuthError(res, {
+          onPermissionDenied: (msg) => setEditError(msg),
+        })
+      )
         return;
-      }
 
       const data = await res.json();
       if (res.ok && data.success) {
@@ -705,30 +697,23 @@ function App() {
     );
 
     try {
-      const res = await fetch(`${API_URL}/equipments/${id}/status`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ status: newStatus }),
+      const res = await authFetchJson(`/equipments/${id}/status`, "PATCH", {
+        status: newStatus,
       });
 
-      if (res.status === 401 || res.status === 403) {
-        alert("🔒 เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง");
+      if (await handleAuthError(res)) {
         setEquipments(previousEquipments);
-        handleLogout();
         return;
       }
 
       const data = await res.json();
       if (!data.success) {
         setEquipments(previousEquipments);
-        alert(`❌ ${data.message || "เปลี่ยนสถานะไม่สำเร็จ"}`);
+        alert(`${data.message || "เปลี่ยนสถานะไม่สำเร็จ"}`);
       }
     } catch (err) {
       setEquipments(previousEquipments);
-      alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
+      alert("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
     }
   };
 
@@ -736,35 +721,38 @@ function App() {
     const file = e.target.files[0];
     if (!file) return;
 
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      alert(
+        "รองรับเฉพาะไฟล์ .xlsx เท่านั้น กรุณาเปิดไฟล์ด้วย Excel แล้วเลือก Save As เป็นชนิด .xlsx ก่อนอัปโหลด",
+      );
+      e.target.value = "";
+      return;
+    }
+
     const formData = new FormData();
     formData.append("file", file);
 
     setIsImporting(true);
     try {
-      const res = await fetch(`${API_URL}/equipments/import`, {
+      // หมายเหตุ: ไม่ใช้ authFetchJson เพราะ FormData ต้องให้ browser ตั้ง Content-Type
+      // (multipart boundary) ให้เอง ห้ามกำหนดเอง ไม่งั้น server จะอ่านไฟล์ไม่ได้
+      const res = await authFetch("/equipments/import", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
         body: formData,
       });
 
-      if (res.status === 401 || res.status === 403) {
-        alert("🔒 เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง");
-        handleLogout();
-        return;
-      }
+      if (await handleAuthError(res)) return;
 
       const data = await res.json();
       if (res.ok && data.success) {
-        alert(`✅ ${data.message}`);
+        alert(`${data.message}`);
         fetchEquipments();
       } else {
-        alert(`❌ ${data.message || "เกิดข้อผิดพลาดในการนำเข้าข้อมูล"}`);
+        alert(`${data.message || "เกิดข้อผิดพลาดในการนำเข้าข้อมูล"}`);
       }
     } catch (err) {
       console.error(err);
-      alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
+      alert("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
     } finally {
       setIsImporting(false);
       e.target.value = "";
@@ -1158,7 +1146,9 @@ function App() {
                         <td>{item.name}</td>
                         <td>
                           <span
-                            className={`status-badge status-${item.status}`}
+                            className={`status-badge status-${
+                              STATUS_CLASS_MAP[item.status] || "other"
+                            }`}
                           >
                             {STATUS_LABELS[item.status] || item.status}
                           </span>
@@ -1229,8 +1219,8 @@ function App() {
                     setNewUserForm({ ...newUserForm, role: e.target.value })
                   }
                 >
-                  <option value="admin">Admin</option>
-                  <option value="super_admin">Super Admin</option>
+                  <option value="admin">ผู้ใช้ทั่วไป</option>
+                  <option value="super_admin">Admin</option>
                 </select>
                 <button
                   type="submit"
@@ -1279,12 +1269,10 @@ function App() {
                               handleRoleChange(u.user_id, e.target.value)
                             }
                           >
-                            <option value="admin">Admin</option>
-                            <option value="super_admin">Super Admin</option>
+                            <option value="admin">ผู้ใช้ทั่วไป</option>
+                            <option value="super_admin">Admin</option>
                             {u.role === "super_super_admin" && (
-                              <option value="super_super_admin">
-                                Super Super Admin
-                              </option>
+                              <option value="super_super_admin">Admin+</option>
                             )}
                           </select>
                           {u.username === currentUser && (
@@ -1438,6 +1426,15 @@ function App() {
           className="action-dropdown-menu-fixed"
           style={{ top: actionMenuPos.top, left: actionMenuPos.left }}
         >
+          <button
+            onClick={() => {
+              setQrCodeItem(actionMenuItem);
+              setActionMenuItem(null);
+            }}
+            className="action-dropdown-item action-dropdown-item-neutral qr-dropdown-item"
+          >
+            QR Code
+          </button>
           <button
             onClick={() => {
               openEditModal(actionMenuItem);
@@ -1648,9 +1645,11 @@ function App() {
                       setForm({ ...form, status: e.target.value })
                     }
                   >
-                    <option value="available">มีอยู่</option>
-                    <option value="damaged">เสียหาย</option>
-                    <option value="lost">สูญหาย</option>
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <button
@@ -1674,7 +1673,7 @@ function App() {
                   {isImporting ? "กำลังนำเข้า..." : "Import Excel"}
                   <input
                     type="file"
-                    accept=".xlsx, .xls"
+                    accept=".xlsx"
                     onChange={handleImportExcel}
                     disabled={isImporting}
                     style={{ display: "none" }}
@@ -1705,42 +1704,46 @@ function App() {
                   <>
                     <col style={{ width: "13%" }} />
                     <col style={{ width: "16%" }} />
-                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "8%" }} />
                     <col style={{ width: "15%" }} />
+                    <col style={{ width: "10%" }} />
                     <col style={{ width: "12%" }} />
-                    <col style={{ width: "12%" }} />
-                    <col style={{ width: "11%" }} />
+                    <col style={{ width: "15%" }} />
                     <col style={{ width: "11%" }} />
                   </>
                 ) : (
                   <>
-                    <col style={{ width: "14%" }} />
-                    <col style={{ width: "18%" }} />
-                    <col style={{ width: "12%" }} />
-                    <col style={{ width: "17%" }} />
-                    <col style={{ width: "13%" }} />
-                    <col style={{ width: "13%" }} />
-                    <col style={{ width: "13%" }} />
+                    <col style={{ width: "35%" }} />
+                    <col style={{ width: "40%" }} />
+                    <col style={{ width: "25%" }} />
                   </>
                 )}
               </colgroup>
               <thead>
-                <tr>
-                  <th>เลขครุภัณฑ์</th>
-                  <th>ชื่ออุปกรณ์</th>
-                  <th>วันที่รับ</th>
-                  <th>สถานที่</th>
-                  <th>ผู้รับผิดชอบ</th>
-                  <th>ราคา</th>
-                  <th>สถานะ</th>
-                  {!isGuest && <th>จัดการ</th>}
-                </tr>
+                {!isGuest ? (
+                  <tr>
+                    <th>เลขครุภัณฑ์</th>
+                    <th>ชื่ออุปกรณ์</th>
+                    <th>วันที่รับ</th>
+                    <th>สถานที่</th>
+                    <th>ผู้รับผิดชอบ</th>
+                    <th>ราคา</th>
+                    <th>สถานะ</th>
+                    <th>จัดการ</th>
+                  </tr>
+                ) : (
+                  <tr>
+                    <th>ชื่ออุปกรณ์</th>
+                    <th>สถานที่</th>
+                    <th>ผู้รับผิดชอบ</th>
+                  </tr>
+                )}
               </thead>
               <tbody>
                 {isLoadingList ? (
                   <tr>
                     <td
-                      colSpan={isGuest ? 7 : 8}
+                      colSpan={isGuest ? 3 : 8}
                       style={{ textAlign: "center" }}
                     >
                       กำลังโหลดข้อมูล...
@@ -1749,28 +1752,28 @@ function App() {
                 ) : filteredEquipments.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={isGuest ? 7 : 8}
+                      colSpan={isGuest ? 3 : 8}
                       style={{ textAlign: "center" }}
                     >
                       ไม่พบข้อมูลครุภัณฑ์
                     </td>
                   </tr>
+                ) : isGuest ? (
+                  filteredEquipments.map((item) => (
+                    <tr key={item.equipment_id}>
+                      <td>{item.name}</td>
+                      <td>
+                        {item.building || item.room
+                          ? `${item.building || ""} / ${item.room || ""}`
+                          : "-"}
+                      </td>
+                      <td>{item.responsible_person || "-"}</td>
+                    </tr>
+                  ))
                 ) : (
                   filteredEquipments.map((item) => (
                     <tr key={item.equipment_id}>
-                      <td className="serial-no">
-                        <span className="serial-no-row">
-                          {item.serial_number}
-                          <button
-                            className="btn-qr-icon"
-                            onClick={() => setQrCodeItem(item)}
-                            aria-label="แสดง QR Code"
-                            title="แสดง QR Code"
-                          >
-                            ⊞
-                          </button>
-                        </span>
-                      </td>
+                      <td className="serial-no">{item.serial_number}</td>
                       <td>{item.name}</td>
                       <td>
                         {item.received_date
@@ -1794,39 +1797,33 @@ function App() {
                           : "-"}
                       </td>
                       <td>
-                        {isGuest ? (
-                          <span
-                            className={`status-badge status-${item.status}`}
-                          >
-                            {STATUS_LABELS[item.status] || item.status}
-                          </span>
-                        ) : (
-                          <select
-                            className={`status-select status-${item.status}`}
-                            value={item.status}
-                            onChange={(e) =>
-                              handleStatusChange(
-                                item.equipment_id,
-                                e.target.value,
-                              )
-                            }
-                          >
-                            <option value="available">มีอยู่</option>
-                            <option value="damaged">เสียหาย</option>
-                            <option value="lost">สูญหาย</option>
-                          </select>
-                        )}
+                        <select
+                          className={`status-select status-${
+                            STATUS_CLASS_MAP[item.status] || "other"
+                          }`}
+                          value={item.status}
+                          onChange={(e) =>
+                            handleStatusChange(
+                              item.equipment_id,
+                              e.target.value,
+                            )
+                          }
+                        >
+                          {STATUS_OPTIONS.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
                       </td>
-                      {!isGuest && (
-                        <td>
-                          <button
-                            className="action-dropdown-trigger"
-                            onClick={(e) => toggleActionMenu(item, e)}
-                          >
-                            จัดการ ▾
-                          </button>
-                        </td>
-                      )}
+                      <td>
+                        <button
+                          className="action-dropdown-trigger"
+                          onClick={(e) => toggleActionMenu(item, e)}
+                        >
+                          จัดการ ▾
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}

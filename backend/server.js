@@ -8,11 +8,11 @@ const ExcelJS = require('exceljs')
 const db = require('./database.js')
 
 const app = express()
-const PORT = 3000
+const PORT = process.env.PORT || 3000
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-key-for-dev'
 
 // สถานะครุภัณฑ์ที่ระบบรองรับ
-const VALID_STATUSES = ['available', 'damaged', 'lost']
+const VALID_STATUSES = ['ใช้ได้', 'ชำรุดรอซ่อม', 'สิ้นสภาพ', 'ไม่มีให้ตรวจ', 'อื่นๆ']
 
 // ระดับสิทธิ์ผู้ใช้ที่ระบบรองรับ
 const VALID_ROLES = ['admin', 'super_admin', 'super_super_admin']
@@ -200,7 +200,7 @@ app.post('/api/equipments', verifyToken, (req, res) => {
     return res.status(400).json({ success: false, message: 'กรุณากรอกเลขครุภัณฑ์และชื่ออุปกรณ์' })
   }
 
-  const finalStatus = VALID_STATUSES.includes(status) ? status : 'available'
+  const finalStatus = VALID_STATUSES.includes(status) ? status : 'ใช้ได้'
 
   try {
     const stmt = db.prepare(`
@@ -358,19 +358,56 @@ app.delete('/api/equipments/:id', verifyToken, requireSuperAdmin, (req, res) => 
   }
 })
 
-// IMPORT EXCEL (ต้อง login - admin ทุกระดับทำได้) - รายการที่ import จะได้สถานะเริ่มต้น 'available' (มีอยู่)
-// ชื่อหัวตารางที่ระบบรู้จัก (รองรับหลายชื่อเรียกสำหรับคอลัมน์เดียวกัน)
+// IMPORT EXCEL (ต้อง login - admin ทุกระดับทำได้) - อ่านสถานะจากคอลัมน์แยกหมวด/คอลัมน์สถานะถ้ามี ไม่งั้น default เป็น 'ใช้ได้'
+// ถ้าไฟล์มีคอลัมน์สถานะที่ระบบรู้จัก (เช่นไฟล์จากส่วนกลาง) จะอ่านค่ามาแปลงให้ด้วย ไม่งั้นเป็น 'available' เสมอ
+// ชื่อหัวตารางที่ระบบรู้จัก (รองรับหลายชื่อเรียกสำหรับคอลัมน์เดียวกัน รวมถึงไฟล์รายงานสินทรัพย์จากส่วนกลาง)
 const IMPORT_HEADER_ALIASES = {
-  serial_number: ['เลขครุภัณฑ์', 'รหัสครุภัณฑ์'],
-  name: ['ชื่ออุปกรณ์', 'ชื่อครุภัณฑ์'],
+  serial_number: ['เลขครุภัณฑ์', 'รหัสครุภัณฑ์', 'สินทรัพย์'],
+  name: ['ชื่ออุปกรณ์', 'ชื่อครุภัณฑ์', 'คำอธิบาย'],
+  extra_detail: ['รายละเอียดเพิ่มเติม'], // ต่อท้ายชื่ออุปกรณ์ ถ้ามีคอลัมน์นี้ในไฟล์
   received_date: ['วันที่รับ'],
-  building: ['อาคาร', 'ตึก'],
+  building: ['อาคาร', 'ตึก', 'ที่ตั้งสินทรัพย์ถาวร (ครุภัณฑ์)'],
   room: ['ห้อง'],
   responsible_person: ['ผู้รับผิดชอบ'],
-  price: ['ราคา (บาท)', 'ราคา'],
+  price: ['ราคา (บาท)', 'ราคา', 'จำนวนเงิน'],
+  status: ['สถานะ', 'สถานะของสินทรัพย์'],
+  // คอลัมน์แยกตามหมวดสถานะ (พบในไฟล์รายงานสินทรัพย์จากส่วนกลาง) - แต่ละคอลัมน์คือ 1 ใน 5 สถานะ
+  // ถ้าคอลัมน์ไหนมีค่า (ไม่ว่างเปล่า) ในแถวนั้น แปลว่ารายการนั้นมีสถานะตามชื่อคอลัมน์นั้น
+  status_usable: ['ใช้ได้'],
+  status_damaged: ['ชำรุดรอซ่อม'],
+  status_endoflife: ['สิ้นสภาพ'],
+  status_notinspected: ['ไม่มีให้ตรวจ'],
+  status_other: ['อื่นๆ'],
 }
 
+// แปลงค่าจากคอลัมน์ "สถานะ"/"สถานะของสินทรัพย์" (ข้อความอิสระ) ให้เป็นค่าสถานะที่ระบบใช้จริง
+// รองรับทั้งชื่อสถานะปัจจุบันของระบบ และคำที่พบได้ในไฟล์ส่วนกลาง/ไฟล์เก่า
+// ค่าที่ไม่รู้จักจะ fallback เป็น 'ใช้ได้' เสมอ
+const IMPORT_STATUS_MAP = {
+  'ใช้ได้': 'ใช้ได้',
+  'พร้อมใช้งาน': 'ใช้ได้',
+  'มีอยู่': 'ใช้ได้', // ชื่อสถานะรุ่นเก่าของระบบเอง (ก่อนขยายเป็น 5 สถานะ)
+  'ชำรุดรอซ่อม': 'ชำรุดรอซ่อม',
+  'ชำรุด': 'ชำรุดรอซ่อม',
+  'เสียหาย': 'ชำรุดรอซ่อม', // ชื่อสถานะรุ่นเก่าของระบบเอง
+  'สิ้นสภาพ': 'สิ้นสภาพ',
+  'ไม่มีให้ตรวจ': 'ไม่มีให้ตรวจ',
+  'สูญหาย': 'ไม่มีให้ตรวจ', // ชื่อสถานะรุ่นเก่าของระบบเอง
+  'อื่นๆ': 'อื่นๆ',
+}
+
+// ลำดับความสำคัญเวลาเช็คคอลัมน์แยกตามหมวด (J-N) - เจอคอลัมน์ไหนมีค่าก่อน ใช้คอลัมน์นั้นเลย
+const STATUS_FLAG_FIELDS = [
+  { field: 'status_usable', status: 'ใช้ได้' },
+  { field: 'status_damaged', status: 'ชำรุดรอซ่อม' },
+  { field: 'status_endoflife', status: 'สิ้นสภาพ' },
+  { field: 'status_notinspected', status: 'ไม่มีให้ตรวจ' },
+  { field: 'status_other', status: 'อื่นๆ' },
+]
+
 // อ่านแถวหัวตาราง (แถวแรก) แล้วสร้าง map: field -> เลขคอลัมน์ ไม่ว่าจะเรียงคอลัมน์แบบไหนหรือมีคอลัมน์เกินมากี่คอลัมน์ก็ได้
+// หมายเหตุ: ถ้ามีหลายคอลัมน์ชื่อซ้ำกัน (เช่นไฟล์ส่วนกลางมี "จำนวนเงิน" 3 คอลัมน์ = ราคาทุน/ค่าเสื่อม/มูลค่าสุทธิ)
+// จะใช้ "คอลัมน์แรกที่เจอ" เสมอ (ซ้ายสุด) เพราะไฟล์ส่วนกลางเรียงราคาทุนไว้เป็นคอลัมน์แรกพอดี
 const buildColumnMap = (headerRow) => {
   const columnMap = {}
   headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
@@ -388,9 +425,27 @@ app.post('/api/equipments/import', verifyToken, upload.single('file'), async (re
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'กรุณาแนบไฟล์ Excel' })
 
+    if (!req.file.originalname.toLowerCase().endsWith('.xlsx')) {
+      return res.status(400).json({ success: false, message: 'รองรับเฉพาะไฟล์ .xlsx เท่านั้น กรุณา Save As เป็น .xlsx ก่อนอัปโหลด' })
+    }
+
     const workbook = new ExcelJS.Workbook()
     await workbook.xlsx.load(req.file.buffer)
-    const worksheet = workbook.getWorksheet(1)
+
+    // บังคับให้ไฟล์ที่อัปโหลดมีแค่ sheet เดียวเท่านั้น (กันเผลอ import ผิด sheet โดยไม่รู้ตัว
+    // เช่นไฟล์รายงานสินทรัพย์จากส่วนกลางที่มีหลาย sheet ปนกัน ต้องแยก sheet ที่ต้องการ
+    // ออกมาเป็นไฟล์เดี่ยวก่อนอัปโหลด)
+    if (workbook.worksheets.length > 1) {
+      return res.status(400).json({
+        success: false,
+        message: `ไฟล์นี้มี ${workbook.worksheets.length} sheet (${workbook.worksheets.map((s) => s.name).join(', ')}) กรุณาแยก sheet ที่ต้องการนำเข้าออกมาเป็นไฟล์ .xlsx เดี่ยวก่อน แล้วค่อยอัปโหลดใหม่`
+      })
+    }
+
+    // หมายเหตุ: ใช้ workbook.worksheets[0] แทน getWorksheet(1) เพราะ getWorksheet()
+    // อ้างอิงจาก internal sheet ID ของไฟล์ ซึ่งบางไฟล์ (โดยเฉพาะไฟล์เก่าที่ผ่านการบันทึกซ้ำหลายรอบ)
+    // ID ภายในอาจไม่เริ่มจาก 1 ทำให้หา sheet ไม่เจอทั้งที่ไฟล์มีข้อมูลอยู่จริง
+    const worksheet = workbook.worksheets[0]
 
     if (!worksheet) return res.status(400).json({ success: false, message: 'ไม่พบ Sheet ในไฟล์ Excel' })
 
@@ -415,24 +470,45 @@ app.post('/api/equipments/import', verifyToken, upload.single('file'), async (re
 
       const serial_number = getField('serial_number')
       const name = getField('name')
+      const extra_detail = getField('extra_detail')
       const rawDate = getField('received_date')
       const building = getField('building')
       const room = getField('room')
       const responsible_person = getField('responsible_person')
       const rawPrice = getField('price')
+      const rawStatus = getField('status').trim()
 
-      if (serial_number || name) {
+      // แถวสรุปยอด/หมวดหมู่บัญชี (พบในไฟล์รายงานส่วนกลาง เช่น "หมวดสินทรัพย์...", "บัญชีงบดุล...")
+      // จะมีข้อความอยู่ในคอลัมน์แรกแต่ไม่มีชื่ออุปกรณ์ - ต้องมีครบทั้งคู่ถึงจะนับเป็นรายการจริง
+      if (serial_number && name) {
         const cleanPrice = String(rawPrice || '0').replace(/,/g, '')
         const price = parseFloat(cleanPrice) || 0
+        const fullName = extra_detail ? `${name} ${extra_detail}` : name
+
+        // ลำดับการตัดสินสถานะ:
+        // 1) เช็คคอลัมน์แยกตามหมวด (ใช้ได้/ชำรุดรอซ่อม/สิ้นสภาพ/ไม่มีให้ตรวจ/อื่นๆ) ก่อน - ถ้าคอลัมน์ไหนมีค่า ใช้คอลัมน์นั้นเลย
+        // 2) ถ้าไม่มีคอลัมน์แยกเลย ลองอ่านจากคอลัมน์ "สถานะ"/"สถานะของสินทรัพย์" แทน
+        // 3) ถ้าไม่มีข้อมูลอะไรเลย fallback เป็น 'ใช้ได้'
+        let status = null
+        for (const { field, status: mappedStatus } of STATUS_FLAG_FIELDS) {
+          if (getField(field)) {
+            status = mappedStatus
+            break
+          }
+        }
+        if (!status) {
+          status = IMPORT_STATUS_MAP[rawStatus] || 'ใช้ได้'
+        }
 
         rowsToInsert.push({
           serial_number,
-          name,
+          name: fullName,
           received_date: parseExcelDate(rawDate),
           building,
           room,
           responsible_person,
-          price
+          price,
+          status
         })
       }
     })
@@ -441,15 +517,32 @@ app.post('/api/equipments/import', verifyToken, upload.single('file'), async (re
       return res.status(400).json({ success: false, message: 'ไม่พบรายการข้อมูลในไฟล์ Excel' })
     }
 
+    const findExistingStmt = db.prepare('SELECT equipment_id, serial_number, status FROM equipments WHERE serial_number = ?')
+    const updateStatusStmt = db.prepare('UPDATE equipments SET status = ? WHERE equipment_id = ?')
     const insertStmt = db.prepare(`
-      INSERT INTO equipments (serial_number, name, received_date, building, room, responsible_person, price)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO equipments (serial_number, name, received_date, building, room, responsible_person, price, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     let importedCount = 0
+    let statusUpdatedCount = 0
     let skippedCount = 0
 
     for (const item of rowsToInsert) {
+      const existing = findExistingStmt.get(item.serial_number)
+
+      if (existing) {
+        // เลขครุภัณฑ์ซ้ำ (มีอยู่แล้วในระบบ) - ไม่แตะข้อมูลอื่นเลย (ชื่อ/ราคา/อาคาร ฯลฯ คงเดิม)
+        // เช็คแค่ "สถานะ" อย่างเดียวว่าค่าจากไฟล์ต่างจากที่มีอยู่ไหม ถ้าต่างถึงจะอัปเดต
+        if (existing.status !== item.status) {
+          updateStatusStmt.run(item.status, existing.equipment_id)
+          statusUpdatedCount++
+        } else {
+          skippedCount++
+        }
+        continue
+      }
+
       try {
         insertStmt.run(
           item.serial_number,
@@ -458,20 +551,28 @@ app.post('/api/equipments/import', verifyToken, upload.single('file'), async (re
           item.building,
           item.room,
           item.responsible_person,
-          item.price
+          item.price,
+          item.status
         )
         importedCount++
       } catch (err) {
-        // เลขครุภัณฑ์ซ้ำ (UNIQUE constraint) -> ข้ามรายการนี้ แล้วนับไว้รายงานผล
+        // เผื่อกรณีชนกันแบบ race condition หรือ error อื่นตอน insert - ข้ามแล้วนับไว้รายงานผล
         skippedCount++
       }
     }
 
-    const message = skippedCount > 0
-      ? `นำเข้าข้อมูลสำเร็จ ${importedCount} รายการ (ข้าม ${skippedCount} รายการที่เลขครุภัณฑ์ซ้ำ)`
-      : `นำเข้าข้อมูลสำเร็จ ${importedCount} รายการ`
+    const messageParts = []
+    if (importedCount > 0) messageParts.push(`เพิ่มใหม่ ${importedCount} รายการ`)
+    if (statusUpdatedCount > 0) messageParts.push(`อัปเดตสถานะ ${statusUpdatedCount} รายการ`)
+    if (skippedCount > 0) messageParts.push(`ข้าม ${skippedCount} รายการ (ข้อมูลซ้ำ ไม่มีอะไรเปลี่ยน)`)
+    const message = messageParts.length > 0 ? messageParts.join(', ') : 'ไม่มีการเปลี่ยนแปลง'
 
-    logActivity(req.user.username, 'นำเข้า Excel', null, `นำเข้าสำเร็จ ${importedCount} รายการ, ข้าม ${skippedCount} รายการ`)
+    logActivity(
+      req.user.username,
+      'นำเข้า Excel',
+      null,
+      `เพิ่มใหม่ ${importedCount} รายการ, อัปเดตสถานะ ${statusUpdatedCount} รายการ, ข้าม ${skippedCount} รายการ`
+    )
 
     res.json({ success: true, message })
   } catch (err) {

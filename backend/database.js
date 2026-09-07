@@ -27,7 +27,7 @@ db.exec(`
     responsible_person TEXT,
     price REAL,
     category_id INTEGER,
-    status TEXT DEFAULT 'available',
+    status TEXT DEFAULT 'ใช้ได้',
     FOREIGN KEY (category_id) REFERENCES categories(category_id)
   );
 

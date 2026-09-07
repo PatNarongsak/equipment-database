@@ -447,17 +447,21 @@ body {
   background: #059669;
 }
 
-/* ================= STATUS BADGE ================= */
+/* ================= STATUS BADGE (5 สถานะ ตามไฟล์รายงานสินทรัพย์จากส่วนกลาง) ================= */
 .status-badge {
   display: inline-block;
+  max-width: 100%;
   padding: 4px 12px;
   border-radius: 999px;
   font-size: 0.82rem;
   font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
-.status-badge.status-available {
+.status-badge.status-usable {
   background: rgba(16, 185, 129, 0.1);
   color: #047857;
   border: 1px solid rgba(16, 185, 129, 0.35);
@@ -469,24 +473,39 @@ body {
   border: 1px solid rgba(245, 158, 11, 0.35);
 }
 
-.status-badge.status-lost {
+.status-badge.status-endoflife {
   background: rgba(239, 68, 68, 0.1);
   color: #b91c1c;
   border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
+.status-badge.status-notinspected {
+  background: rgba(124, 58, 237, 0.1);
+  color: #6d28d9;
+  border: 1px solid rgba(124, 58, 237, 0.35);
+}
+
+.status-badge.status-other {
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+  border: 1px solid rgba(100, 116, 139, 0.35);
+}
+
 /* Dropdown เปลี่ยนสถานะในตาราง (เฉพาะเจ้าหน้าที่) */
 .status-select {
-  padding: 6px 10px;
+  padding: 6px 8px;
   border-radius: 999px;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
   border: 1px solid #cbd5e1;
   background-color: #f8fafc;
+  max-width: 100%;
+  width: 100%;
+  text-overflow: ellipsis;
 }
 
-.status-select.status-available {
+.status-select.status-usable {
   color: #047857;
   border-color: rgba(16, 185, 129, 0.5);
 }
@@ -496,9 +515,19 @@ body {
   border-color: rgba(245, 158, 11, 0.5);
 }
 
-.status-select.status-lost {
+.status-select.status-endoflife {
   color: #b91c1c;
   border-color: rgba(239, 68, 68, 0.5);
+}
+
+.status-select.status-notinspected {
+  color: #6d28d9;
+  border-color: rgba(124, 58, 237, 0.5);
+}
+
+.status-select.status-other {
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.5);
 }
 
 /* select สถานะในฟอร์มเพิ่มครุภัณฑ์ */
@@ -683,6 +712,7 @@ body {
 
 /* ================= QR CODE ================= */
 .btn-scan {
+  display: none; /* ซ่อนบนจอคอมพิวเตอร์ - แสดงเฉพาะแท็บเล็ต/มือถือ (ดู media query ด้านล่าง) */
   background: #7c3aed;
   color: white;
   border: none;
@@ -709,16 +739,18 @@ body {
   background: none;
   border: 1px solid #cbd5e1;
   color: #475569;
-  width: 22px;
+  padding: 2px 6px;
   height: 22px;
   border-radius: 4px;
-  font-size: 0.85rem;
+  font-size: 0.7rem;
+  font-weight: 700;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .btn-qr-icon:hover {
@@ -759,6 +791,11 @@ body {
 
 .qr-modal-actions button {
   flex: 1;
+  margin-top: 0;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 /* ================= QR SCANNER ================= */
@@ -839,6 +876,17 @@ body {
   .form-card.mobile-open {
     display: block;
     margin-bottom: 24px;
+  }
+
+  /* ปุ่ม "สแกน QR" มีประโยชน์เฉพาะแท็บเล็ต/มือถือ (ใช้กล้องสแกน) - จอคอมไม่ได้ใช้ */
+  .btn-scan {
+    display: inline-block;
+  }
+
+  /* ปุ่ม "QR Code" (แสดง/พิมพ์) ใช้เฉพาะจอคอมพิวเตอร์ - บนแท็บเล็ต/มือถือไม่ค่อยมีประโยชน์
+     (ต่างจากปุ่ม "สแกน QR" ที่ยังโชว์ทุกขนาดจอ เพราะสแกนด้วยกล้องมือถือมีประโยชน์จริง) */
+  .qr-dropdown-item {
+    display: none;
   }
 }
 
