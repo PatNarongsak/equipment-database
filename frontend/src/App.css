@@ -681,6 +681,111 @@ body {
   font-size: 0.8rem;
 }
 
+/* ================= QR CODE ================= */
+.btn-scan {
+  background: #7c3aed;
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.btn-scan:hover {
+  background: #6d28d9;
+}
+
+.serial-no-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-qr-icon {
+  background: none;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.btn-qr-icon:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.qr-modal-box {
+  max-width: 320px;
+  text-align: center;
+}
+
+.qr-modal-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.qr-serial-text {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #0f172a;
+  margin-top: 8px;
+}
+
+.qr-name-text {
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.qr-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  width: 100%;
+}
+
+.qr-modal-actions button {
+  flex: 1;
+}
+
+/* ================= QR SCANNER ================= */
+.scanner-modal-box {
+  max-width: 420px;
+}
+
+.scanner-hint {
+  color: #64748b;
+  font-size: 0.9rem;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.scanner-region {
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0f172a;
+  min-height: 280px;
+}
+
+.scanner-region video {
+  width: 100% !important;
+  border-radius: 8px;
+}
+
 /* ================= TABLE WRAPPER (กันตารางกระโดดตอนค้นหา + จำกัดความสูงสูงสุด) ================= */
 .table-wrapper {
   min-height: 340px; /* ประมาณ 5-6 แถว กันตารางหดตัวตอนผลค้นหาเหลือน้อย */
@@ -823,17 +928,25 @@ body {
   }
 
   .list-header > div {
-    flex-direction: column;
+    flex-direction: row;
+    flex-wrap: wrap;
     align-items: stretch !important;
+    gap: 8px !important;
   }
 
   .search-input {
     width: 100%;
+    order: 99; /* ดันช่องค้นหาลงมาอยู่แถวล่างสุดเสมอ */
   }
 
   .btn-import,
-  .btn-export {
+  .btn-export,
+  .btn-scan {
+    flex: 1 1 auto;
+    min-width: 0;
     justify-content: center;
+    padding: 8px 10px;
+    font-size: 0.85rem;
   }
 
   /* ตารางหลัก: ยอมให้ scroll แนวนอนแทนการบีบคอลัมน์จนอ่านไม่ออก */
@@ -861,5 +974,30 @@ body {
   .user-add-form-row select,
   .user-add-form-row .btn-submit {
     flex: 1 1 100%;
+  }
+
+  /* QR Scanner: ขยายเต็มจอบนมือถือ/แท็บเล็ต ให้เล็งกล้องง่ายขึ้น */
+  .scanner-modal-box {
+    max-width: 100%;
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .scanner-region {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .scanner-region video {
+    height: 100% !important;
+    object-fit: cover;
+  }
+
+  .qr-modal-box {
+    max-width: 100%;
   }
 }

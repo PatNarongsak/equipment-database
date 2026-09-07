@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
+import { QRCodeCanvas } from "qrcode.react";
+import { Html5Qrcode } from "html5-qrcode";
 import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
@@ -28,6 +30,13 @@ function App() {
   // ---------- Mobile UI state ----------
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showAddFormMobile, setShowAddFormMobile] = useState(false);
+
+  // ---------- QR code state ----------
+  const [qrCodeItem, setQrCodeItem] = useState(null); // item ที่กำลังโชว์ QR อยู่
+  const [showScanner, setShowScanner] = useState(false);
+  const [scannerError, setScannerError] = useState("");
+  const scannerRef = useRef(null); // เก็บ instance ของ Html5Qrcode
+  const scannerDivId = "qr-scanner-region";
 
   const isSuperAdmin =
     userRole === "super_admin" || userRole === "super_super_admin";
@@ -155,6 +164,70 @@ function App() {
       window.removeEventListener("resize", close);
     };
   }, [actionMenuItem]);
+
+  // ---------- QR Scanner handlers ----------
+  const openScanner = () => {
+    setScannerError("");
+    setShowScanner(true);
+  };
+
+  // สำคัญ: ต้องสั่งปิดกล้องให้เสร็จก่อน แล้วค่อยซ่อน modal
+  // (ถ้าซ่อน modal ก่อน DOM ที่กล้องใช้งานจะถูกลบไปทันที ทำให้ library เข้าถึง element ที่หายไปแล้ว
+  // เกิด error จนทำให้หน้าเว็บพัง/ค้างเป็นจอขาว)
+  const closeScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.stop();
+        await scannerRef.current.clear();
+      } catch (err) {
+        // อาจจะยังไม่ทันเริ่มสแกน หรือปิดไปแล้ว - ไม่ต้องทำอะไรต่อ
+      }
+    }
+    setShowScanner(false);
+    setScannerError("");
+  };
+
+  // เริ่มกล้องหลังจาก modal ถูก render แล้วเท่านั้น (ต้องมี div id อยู่ใน DOM ก่อน)
+  useEffect(() => {
+    if (!showScanner) return;
+
+    const html5Qrcode = new Html5Qrcode(scannerDivId);
+    scannerRef.current = html5Qrcode;
+    let isStopped = false;
+
+    const onScanSuccess = (decodedText) => {
+      if (isStopped) return;
+      isStopped = true;
+      setSearchTerm(decodedText.trim());
+      html5Qrcode
+        .stop()
+        .then(() => html5Qrcode.clear())
+        .catch(() => {})
+        .finally(() => {
+          setShowScanner(false);
+        });
+    };
+
+    html5Qrcode
+      .start(
+        { facingMode: "environment" }, // ใช้กล้องหลังเป็นค่าเริ่มต้น (เหมาะกับมือถือ/แท็บเล็ต)
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        onScanSuccess,
+        () => {}, // error callback ตอนยังไม่เจอ QR ในเฟรม ไม่ต้องแสดงอะไร
+      )
+      .catch((err) => {
+        setScannerError(
+          "ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการเข้าถึงกล้องในเบราว์เซอร์ หรือเช็คว่าเครื่องมีกล้องหรือไม่",
+        );
+        console.error("QR Scanner start error:", err);
+      });
+
+    // safety net เผื่อ component หลุดออกจาก DOM ด้วยเหตุผลอื่น (ไม่ใช่ทางหลักที่ใช้ปิดกล้องแล้ว
+    // เพราะ closeScanner/onScanSuccess จัดการ stop() เองก่อนซ่อน modal อยู่แล้ว)
+    return () => {
+      isStopped = true;
+    };
+  }, [showScanner]);
 
   // ---------- Data fetching ----------
   const fetchEquipments = async () => {
@@ -1388,6 +1461,104 @@ function App() {
         </div>
       )}
 
+      {qrCodeItem && (
+        <div className="modal-overlay" onClick={() => setQrCodeItem(null)}>
+          <div
+            className="modal-box qr-modal-box"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h3>QR Code ครุภัณฑ์</h3>
+              <button
+                className="modal-close"
+                onClick={() => setQrCodeItem(null)}
+                aria-label="ปิด"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="qr-modal-content">
+              <QRCodeCanvas
+                id="qr-canvas-download"
+                value={qrCodeItem.serial_number}
+                size={220}
+                level="M"
+                includeMargin
+              />
+              <p className="qr-serial-text">{qrCodeItem.serial_number}</p>
+              <p className="qr-name-text">{qrCodeItem.name}</p>
+              <div className="qr-modal-actions">
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    const canvas =
+                      document.getElementById("qr-canvas-download");
+                    const url = canvas.toDataURL("image/png");
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = `QR-${qrCodeItem.serial_number}.png`;
+                    link.click();
+                  }}
+                >
+                  ดาวน์โหลด
+                </button>
+                <button
+                  className="btn-primary"
+                  onClick={() => {
+                    const canvas =
+                      document.getElementById("qr-canvas-download");
+                    const dataUrl = canvas.toDataURL("image/png");
+                    const printWindow = window.open("", "_blank");
+                    printWindow.document.write(`
+                      <html>
+                        <head><title>${qrCodeItem.serial_number}</title></head>
+                        <body style="text-align:center; font-family: sans-serif; padding-top: 40px;">
+                          <img src="${dataUrl}" style="width:220px;height:220px;" />
+                          <p style="font-size:16px; font-weight:bold;">${qrCodeItem.serial_number}</p>
+                          <p style="font-size:14px;">${qrCodeItem.name}</p>
+                          <script>window.onload = () => window.print();</script>
+                        </body>
+                      </html>
+                    `);
+                    printWindow.document.close();
+                  }}
+                >
+                  พิมพ์
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showScanner && (
+        <div className="modal-overlay" onClick={closeScanner}>
+          <div
+            className="modal-box scanner-modal-box"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h3>สแกน QR Code</h3>
+              <button
+                className="modal-close"
+                onClick={closeScanner}
+                aria-label="ปิด"
+              >
+                ✕
+              </button>
+            </div>
+            {scannerError ? (
+              <div className="error-banner">{scannerError}</div>
+            ) : (
+              <p className="scanner-hint">
+                เล็งกล้องไปที่ QR Code บนตัวครุภัณฑ์
+              </p>
+            )}
+            <div id={scannerDivId} className="scanner-region"></div>
+          </div>
+        </div>
+      )}
+
       <main className={isGuest ? "main-content guest-mode" : "main-content"}>
         {!isGuest && (
           <>
@@ -1513,6 +1684,9 @@ function App() {
               <button onClick={exportToExcel} className="btn-export">
                 Export Excel
               </button>
+              <button onClick={openScanner} className="btn-scan">
+                สแกน QR
+              </button>
               <input
                 type="text"
                 placeholder="🔍 ค้นหาอุปกรณ์, ตึก, ห้อง..."
@@ -1584,7 +1758,19 @@ function App() {
                 ) : (
                   filteredEquipments.map((item) => (
                     <tr key={item.equipment_id}>
-                      <td className="serial-no">{item.serial_number}</td>
+                      <td className="serial-no">
+                        <span className="serial-no-row">
+                          {item.serial_number}
+                          <button
+                            className="btn-qr-icon"
+                            onClick={() => setQrCodeItem(item)}
+                            aria-label="แสดง QR Code"
+                            title="แสดง QR Code"
+                          >
+                            ⊞
+                          </button>
+                        </span>
+                      </td>
                       <td>{item.name}</td>
                       <td>
                         {item.received_date
