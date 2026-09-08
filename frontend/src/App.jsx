@@ -120,6 +120,7 @@ function App() {
           isLoadingUsers={admin.isLoadingUsers}
           currentUser={auth.currentUser}
           handleRoleChange={admin.handleRoleChange}
+          handleDeleteUser={admin.handleDeleteUser}
         />
       )}
 

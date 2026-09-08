@@ -167,6 +167,37 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
     }
   };
 
+  const handleDeleteUser = async (userId, username) => {
+    if (!window.confirm(`ต้องการลบผู้ใช้ "${username}" ใช่หรือไม่?`)) return;
+
+    const previousUsers = users;
+    setUsers((prev) => prev.filter((u) => u.user_id !== userId));
+
+    try {
+      const res = await authFetch(`/users/${userId}`, { method: "DELETE" });
+
+      if (
+        await handleAuthError(res, {
+          onPermissionDenied: (msg) => {
+            setUsers(previousUsers);
+            alert(msg);
+          },
+        })
+      ) {
+        return;
+      }
+
+      const data = await res.json();
+      if (!data.success) {
+        setUsers(previousUsers);
+        alert(`${data.message || "ลบผู้ใช้ไม่สำเร็จ"}`);
+      }
+    } catch (err) {
+      setUsers(previousUsers);
+      alert("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
+    }
+  };
+
   return {
     showLogs,
     setShowLogs,
@@ -190,5 +221,6 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
     isCreatingUser,
     handleCreateUser,
     handleRoleChange,
+    handleDeleteUser,
   };
 }

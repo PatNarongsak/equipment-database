@@ -17,9 +17,6 @@ const VALID_STATUSES = ['ใช้ได้', 'ชำรุดรอซ่อม
 // ระดับสิทธิ์ผู้ใช้ที่ระบบรองรับ
 const VALID_ROLES = ['admin', 'super_admin', 'super_super_admin']
 
-// เก็บของที่ถูกลบไว้ในระบบได้นานสูงสุด (วัน) ก่อนถูกล้างอัตโนมัติ
-const DELETED_RETENTION_DAYS = 365
-
 // Setup Multer (Memory Storage)
 const upload = multer({ storage: multer.memoryStorage() })
 
@@ -72,24 +69,8 @@ const logActivity = (username, action, target, details) => {
   }
 }
 
-// Helper: ล้างรายการที่ถูกลบซึ่งเก็บไว้เกิน 1 ปีออกจาก archive
-const purgeOldDeletedEquipments = () => {
-  try {
-    const info = db.prepare(`
-      DELETE FROM deleted_equipments
-      WHERE deleted_at < datetime('now', ?)
-    `).run(`-${DELETED_RETENTION_DAYS} days`)
-    if (info.changes > 0) {
-      console.log(`🗑️  ล้างรายการที่ถูกลบซึ่งเก็บไว้เกิน ${DELETED_RETENTION_DAYS} วัน จำนวน ${info.changes} รายการ`)
-    }
-  } catch (err) {
-    console.error('Purge Error:', err.message)
-  }
-}
-
-// รันตอนเริ่ม server และวนซ้ำทุก 24 ชั่วโมง
-purgeOldDeletedEquipments()
-setInterval(purgeOldDeletedEquipments, 24 * 60 * 60 * 1000)
+// หมายเหตุ: เดิมมีระบบล้างรายการที่ถูกลบออกจาก archive อัตโนมัติหลังเก็บไว้ 1 ปี
+// ตอนนี้เอาออกแล้ว - รายการที่ถูกลบจะเก็บไว้ใน archive ตลอดไป ไม่มีการล้างอัตโนมัติอีก
 
 // Helper: Safely Extract Cell Value from ExcelJS
 const getCellValue = (cell) => {
@@ -594,7 +575,6 @@ app.get('/api/logs', verifyToken, requireSuperAdmin, (req, res) => {
 // ---------- Deleted Equipments Archive (เฉพาะ super_admin) ----------
 app.get('/api/deleted-equipments', verifyToken, requireSuperAdmin, (req, res) => {
   try {
-    purgeOldDeletedEquipments()
     const rows = db.prepare('SELECT * FROM deleted_equipments ORDER BY deleted_id DESC').all()
     res.json({ success: true, data: rows })
   } catch (err) {
@@ -674,6 +654,32 @@ app.patch('/api/users/:id/role', verifyToken, requireSuperSuperAdmin, (req, res)
     db.prepare('UPDATE users SET role = ? WHERE user_id = ?').run(role, req.params.id)
 
     logActivity(req.user.username, 'ปรับระดับสิทธิ์', target.username, `${target.role} → ${role}`)
+
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ลบผู้ใช้ออกจากระบบ (เผื่อกรณีพิมพ์ username ผิด/สร้างบัญชีผิดพลาดตอนเพิ่มผู้ใช้)
+// หมายเหตุ: ลบบัญชีตัวเองไม่ได้ และลบบัญชี super_super_admin ผ่านหน้าเว็บไม่ได้ (กันลบบัญชีสูงสุดผิดพลาด)
+app.delete('/api/users/:id', verifyToken, requireSuperSuperAdmin, (req, res) => {
+  if (Number(req.params.id) === req.user.id) {
+    return res.status(400).json({ success: false, message: 'ไม่สามารถลบบัญชีตัวเองได้' })
+  }
+
+  try {
+    const target = db.prepare('SELECT * FROM users WHERE user_id = ?').get(req.params.id)
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'ไม่พบผู้ใช้ที่ต้องการลบ' })
+    }
+    if (target.role === 'super_super_admin') {
+      return res.status(403).json({ success: false, message: 'ไม่สามารถลบบัญชี Super Super Admin ผ่านหน้าเว็บได้' })
+    }
+
+    db.prepare('DELETE FROM users WHERE user_id = ?').run(req.params.id)
+
+    logActivity(req.user.username, 'ลบผู้ใช้ระบบ', target.username, `role เดิม: ${target.role}`)
 
     res.json({ success: true })
   } catch (err) {

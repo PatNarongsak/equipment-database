@@ -13,7 +13,7 @@ export default function DeletedItemsModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h3>รายการครุภัณฑ์ที่ถูกลบ (เก็บย้อนหลังได้ 1 ปี)</h3>
+          <h3>รายการครุภัณฑ์ที่ถูกลบ</h3>
           <button className="modal-close" onClick={onClose} aria-label="ปิด">
             ✕
           </button>

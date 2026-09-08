@@ -9,6 +9,7 @@ export default function UserManagementModal({
   isLoadingUsers,
   currentUser,
   handleRoleChange,
+  handleDeleteUser,
 }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -74,18 +75,19 @@ export default function UserManagementModal({
               <tr>
                 <th>Username</th>
                 <th>ระดับสิทธิ์ปัจจุบัน</th>
+                <th>จัดการ</th>
               </tr>
             </thead>
             <tbody>
               {isLoadingUsers ? (
                 <tr>
-                  <td colSpan={2} style={{ textAlign: "center" }}>
+                  <td colSpan={3} style={{ textAlign: "center" }}>
                     กำลังโหลด...
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={2} style={{ textAlign: "center" }}>
+                  <td colSpan={3} style={{ textAlign: "center" }}>
                     ยังไม่มีผู้ใช้ในระบบ
                   </td>
                 </tr>
@@ -123,6 +125,20 @@ export default function UserManagementModal({
                             {" "}
                             (ตั้งค่าผ่าน server เท่านั้น)
                           </span>
+                        )}
+                    </td>
+                    <td>
+                      {u.username !== currentUser &&
+                        u.role !== "super_super_admin" && (
+                          <button
+                            type="button"
+                            className="action-dropdown-item action-dropdown-item-danger"
+                            onClick={() =>
+                              handleDeleteUser(u.user_id, u.username)
+                            }
+                          >
+                            ลบ
+                          </button>
                         )}
                     </td>
                   </tr>
