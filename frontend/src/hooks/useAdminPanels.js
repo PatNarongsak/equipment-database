@@ -134,7 +134,7 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
       } else {
         setNewUserError(data.message || "เพิ่มผู้ใช้ไม่สำเร็จ");
       }
-    } catch (err) {
+    } catch {
       setNewUserError("ไม่สามารถเชื่อมต่อ Server ได้");
     } finally {
       setIsCreatingUser(false);
@@ -161,7 +161,7 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
         setUsers(previousUsers);
         alert(`${data.message || "ปรับระดับสิทธิ์ไม่สำเร็จ"}`);
       }
-    } catch (err) {
+    } catch {
       setUsers(previousUsers);
       alert("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
     }
@@ -192,7 +192,7 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
         setUsers(previousUsers);
         alert(`${data.message || "ลบผู้ใช้ไม่สำเร็จ"}`);
       }
-    } catch (err) {
+    } catch {
       setUsers(previousUsers);
       alert("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
     }
