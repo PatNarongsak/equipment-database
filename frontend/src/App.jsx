@@ -29,6 +29,7 @@ function App() {
 
   // ---------- รายการครุภัณฑ์: โหลด/ค้นหา/เพิ่ม/แก้/ลบ/สถานะ/import-export ----------
   const equip = useEquipments({
+    token: auth.token,
     authFetch: auth.authFetch,
     authFetchJson: auth.authFetchJson,
     handleAuthError: auth.handleAuthError,

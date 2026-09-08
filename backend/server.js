@@ -20,9 +20,61 @@ const VALID_ROLES = ['admin', 'super_admin', 'super_super_admin']
 // Setup Multer (Memory Storage)
 const upload = multer({ storage: multer.memoryStorage() })
 
+// รันหลัง reverse proxy (nginx ฯลฯ) 1 ชั้น - ให้ req.ip อ่านค่าจริงจาก X-Forwarded-For
+// ถ้า deploy แบบไม่มี proxy คั่น ค่านี้ไม่มีผลเสีย
+app.set('trust proxy', 1)
+
 // Middleware
 app.use(cors())
 app.use(express.json())
+
+// ---------- Rate limiting หน้า login (กัน brute-force) ----------
+// เก็บสถิติ login ที่ล้มเหลวแยกตาม IP ไว้ใน memory (แอปรันโปรเซสเดียว + SQLite ใช้ Map พอ ไม่ต้องพึ่ง lib)
+// ผิดครบ 5 ครั้งใน 15 นาที -> บล็อค IP นั้นชั่วคราว 15 นาที, ตัวนับรีเซ็ตเมื่อ login สำเร็จ
+const LOGIN_MAX_ATTEMPTS = 5
+const LOGIN_WINDOW_MS = 15 * 60 * 1000
+const loginAttempts = new Map() // ip -> { count, firstAttempt, blockedUntil }
+
+const loginRateLimiter = (req, res, next) => {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown'
+  const now = Date.now()
+  const entry = loginAttempts.get(ip)
+
+  if (entry?.blockedUntil && now < entry.blockedUntil) {
+    const waitMin = Math.ceil((entry.blockedUntil - now) / 60000)
+    return res.status(429).json({
+      success: false,
+      message: `พยายามเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอประมาณ ${waitMin} นาทีแล้วลองใหม่`,
+    })
+  }
+
+  // พ้นช่วง window แล้ว - ล้างสถิติเดิมทิ้ง เริ่มนับใหม่
+  if (entry && now - entry.firstAttempt > LOGIN_WINDOW_MS) {
+    loginAttempts.delete(ip)
+  }
+  req.clientIp = ip
+  next()
+}
+
+const registerFailedLogin = (ip) => {
+  const now = Date.now()
+  const entry = loginAttempts.get(ip) || { count: 0, firstAttempt: now, blockedUntil: 0 }
+  entry.count += 1
+  if (entry.count >= LOGIN_MAX_ATTEMPTS) {
+    entry.blockedUntil = now + LOGIN_WINDOW_MS
+  }
+  loginAttempts.set(ip, entry)
+}
+
+// กัน Map โตไม่จำกัด - เก็บกวาด entry ที่หมดอายุทุก 10 นาที
+setInterval(() => {
+  const now = Date.now()
+  for (const [ip, entry] of loginAttempts) {
+    const windowDone = now - entry.firstAttempt > LOGIN_WINDOW_MS
+    const blockDone = !entry.blockedUntil || now > entry.blockedUntil
+    if (windowDone && blockDone) loginAttempts.delete(ip)
+  }
+}, 10 * 60 * 1000).unref()
 
 // Middleware: Verify JWT Token
 const verifyToken = (req, res, next) => {
@@ -112,7 +164,7 @@ const parseExcelDate = (val) => {
 }
 
 // ---------- Auth ----------
-app.post('/api/login', (req, res) => {
+app.post('/api/login', loginRateLimiter, (req, res) => {
   const { username, password } = req.body
 
   if (!username || !password) {
@@ -122,8 +174,13 @@ app.post('/api/login', (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username)
 
   if (!user || !bcrypt.compareSync(password, user.password)) {
+    // นับเฉพาะกรณีกรอกครบแต่รหัสผิด (การเดา credential) ไม่นับกรณีเว้นช่องว่าง
+    registerFailedLogin(req.clientIp)
     return res.status(400).json({ success: false, message: 'Username หรือ Password ไม่ถูกต้อง' })
   }
+
+  // login สำเร็จ - ล้างสถิติที่ล้มเหลวของ IP นี้ทิ้ง
+  loginAttempts.delete(req.clientIp)
 
   const token = jwt.sign(
     { id: user.user_id, username: user.username, role: user.role },
@@ -164,9 +221,27 @@ app.patch('/api/users/change-password', verifyToken, (req, res) => {
 // ---------- Equipments ----------
 
 // GET (public - ผู้มาเยือนดูได้โดยไม่ต้อง login)
+// ผู้มาเยือน (ไม่มี token / token ไม่ถูกต้อง): เห็นแค่ ชื่ออุปกรณ์ / สถานที่ (อาคาร-ห้อง) / ผู้รับผิดชอบ
+// ผู้ใช้ที่ login แล้ว (แนบ token ถูกต้อง): เห็นข้อมูลครบทุกคอลัมน์ (เลขครุภัณฑ์ / ราคา / วันที่รับ / สถานะ)
 app.get('/api/equipments', (req, res) => {
   try {
-    const rows = db.prepare('SELECT * FROM equipments ORDER BY equipment_id DESC').all()
+    let isAuthed = false
+    const token = req.headers['authorization']?.split(' ')[1]
+    if (token) {
+      try {
+        jwt.verify(token, JWT_SECRET)
+        isAuthed = true
+      } catch {
+        isAuthed = false
+      }
+    }
+
+    const rows = isAuthed
+      ? db.prepare('SELECT * FROM equipments ORDER BY equipment_id DESC').all()
+      : db.prepare(
+          'SELECT equipment_id, name, building, room, responsible_person FROM equipments ORDER BY equipment_id DESC'
+        ).all()
+
     res.json({ success: true, data: rows })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
@@ -505,42 +580,52 @@ app.post('/api/equipments/import', verifyToken, upload.single('file'), async (re
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
-    let importedCount = 0
-    let statusUpdatedCount = 0
-    let skippedCount = 0
+    // ห่อทั้งก้อนใน transaction เดียว: เร็วขึ้นมาก (หลักพันแถวจาก insert ทีละครั้ง -> commit ครั้งเดียว)
+    // และเป็น all-or-nothing ถ้าพังกลางคันจะ rollback ทั้งหมด ไม่ทิ้งข้อมูลค้างครึ่งเดียว
+    // หมายเหตุ: error ตอน insert รายแถว (เช่นชน UNIQUE) ถูก catch ไว้ในลูป จึงไม่ทำให้ทั้ง transaction rollback
+    const runImport = db.transaction((rows) => {
+      let imported = 0
+      let statusUpdated = 0
+      let skipped = 0
 
-    for (const item of rowsToInsert) {
-      const existing = findExistingStmt.get(item.serial_number)
+      for (const item of rows) {
+        const existing = findExistingStmt.get(item.serial_number)
 
-      if (existing) {
-        // เลขครุภัณฑ์ซ้ำ (มีอยู่แล้วในระบบ) - ไม่แตะข้อมูลอื่นเลย (ชื่อ/ราคา/อาคาร ฯลฯ คงเดิม)
-        // เช็คแค่ "สถานะ" อย่างเดียวว่าค่าจากไฟล์ต่างจากที่มีอยู่ไหม ถ้าต่างถึงจะอัปเดต
-        if (existing.status !== item.status) {
-          updateStatusStmt.run(item.status, existing.equipment_id)
-          statusUpdatedCount++
-        } else {
-          skippedCount++
+        if (existing) {
+          // เลขครุภัณฑ์ซ้ำ (มีอยู่แล้วในระบบ) - ไม่แตะข้อมูลอื่นเลย (ชื่อ/ราคา/อาคาร ฯลฯ คงเดิม)
+          // เช็คแค่ "สถานะ" อย่างเดียวว่าค่าจากไฟล์ต่างจากที่มีอยู่ไหม ถ้าต่างถึงจะอัปเดต
+          if (existing.status !== item.status) {
+            updateStatusStmt.run(item.status, existing.equipment_id)
+            statusUpdated++
+          } else {
+            skipped++
+          }
+          continue
         }
-        continue
+
+        try {
+          insertStmt.run(
+            item.serial_number,
+            item.name,
+            item.received_date,
+            item.building,
+            item.room,
+            item.responsible_person,
+            item.price,
+            item.status
+          )
+          imported++
+        } catch (err) {
+          // เผื่อกรณีชนกันแบบ race condition หรือ error อื่นตอน insert - ข้ามแล้วนับไว้รายงานผล
+          skipped++
+        }
       }
 
-      try {
-        insertStmt.run(
-          item.serial_number,
-          item.name,
-          item.received_date,
-          item.building,
-          item.room,
-          item.responsible_person,
-          item.price,
-          item.status
-        )
-        importedCount++
-      } catch (err) {
-        // เผื่อกรณีชนกันแบบ race condition หรือ error อื่นตอน insert - ข้ามแล้วนับไว้รายงานผล
-        skippedCount++
-      }
-    }
+      return { imported, statusUpdated, skipped }
+    })
+
+    const { imported: importedCount, statusUpdated: statusUpdatedCount, skipped: skippedCount } =
+      runImport(rowsToInsert)
 
     const messageParts = []
     if (importedCount > 0) messageParts.push(`เพิ่มใหม่ ${importedCount} รายการ`)

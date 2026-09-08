@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
-import { API_URL, STATUS_LABELS } from "../constants";
+import { STATUS_LABELS } from "../constants";
 
 // รวม logic ทั้งหมดที่เกี่ยวกับตารางครุภัณฑ์: โหลดรายการ, ค้นหา, เพิ่ม/แก้/ลบ,
 // เปลี่ยนสถานะ, import/export Excel, และ dropdown "จัดการ" ต่อแถว
 // ต้องรับ authFetch/authFetchJson/handleAuthError/isSuperAdmin มาจาก useAuth()
 export function useEquipments({
+  token,
   authFetch,
   authFetchJson,
   handleAuthError,
@@ -92,8 +93,10 @@ export function useEquipments({
   const fetchEquipments = async () => {
     setIsLoadingList(true);
     try {
-      // หมายเหตุ: endpoint นี้เปิดสาธารณะ (ผู้มาเยือนดูได้โดยไม่ต้อง login) จึงใช้ fetch ธรรมดา ไม่ใช้ authFetch
-      const res = await fetch(`${API_URL}/equipments`);
+      // endpoint นี้เปิดสาธารณะ แต่ถ้าแนบ token ไปด้วย server จะส่งข้อมูลครบทุกคอลัมน์กลับมา
+      // (ผู้มาเยือนที่ไม่มี token จะได้แค่ ชื่ออุปกรณ์/สถานที่/ผู้รับผิดชอบ)
+      // authFetch จะแนบ Authorization header ให้เองเฉพาะตอนมี token เท่านั้น
+      const res = await authFetch("/equipments");
       const data = await res.json();
       if (data.success) {
         setEquipments(data.data);
@@ -107,10 +110,13 @@ export function useEquipments({
     }
   };
 
+  // โหลดครั้งแรกตอน mount และโหลดใหม่ทุกครั้งที่ token เปลี่ยน (login/logout)
+  // เพื่อสลับระหว่างข้อมูลแบบเต็ม (มี token) กับแบบจำกัดคอลัมน์ (ผู้มาเยือน)
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ปลอดภัย: setState เกิดหลัง await เสร็จ ไม่ใช่ synchronous
     fetchEquipments();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   // ---------- Equipment CRUD handlers ----------
   const handleSubmit = async (e) => {
