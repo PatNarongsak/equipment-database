@@ -2,7 +2,7 @@
 
 Department of Physics, Silpakorn University
 
-A web application for recording, searching, editing, and tracking laboratory equipment across 5 condition statuses, with role-based access control, an activity log, a recoverable deletion archive, QR code generation/scanning, and smart Excel import (including direct support for the university's central asset report format).
+A web application for recording, searching, editing, and tracking laboratory equipment across 5 condition statuses, with role-based access control, an activity log, a write-off archive (แทงจำหน่าย) with a required equipment photo, QR code and barcode scanning, and smart Excel import (including direct support for the university's central asset report format).
 
 ## Project Structure
 
@@ -10,24 +10,27 @@ A web application for recording, searching, editing, and tracking laboratory equ
 Equipment-Database/
 ├── backend/                      # Node.js + Express + better-sqlite3
 │   ├── server.js
-│   ├── database.js
+│   ├── database.js               # Schema + auto-migrations, runs on startup
 │   ├── create-admin.js           # CLI script to create a new user
 │   ├── set-role.js               # CLI script to change an existing user's role
-│   ├── migrate-status-values.js  # One-time script: migrates old 3-status data to the 5-status scheme
 │   ├── .env                      # Holds JWT_SECRET (not committed to git)
 │   └── package.json
 └── frontend/                      # React (Vite)
     ├── src/
     │   ├── App.jsx
-    │   └── App.css
+    │   ├── App.css
+    │   ├── hooks/                 # useAuth, useEquipments, useAdminPanels, useQRCode
+    │   └── components/            # Table, forms, modals (incl. WriteoffModal), scanners
     ├── .env                       # Holds VITE_API_URL (not committed to git)
     └── package.json
 ```
 
 ## Tech Stack
 
-- **Backend:** Node.js, Express, better-sqlite3, JWT (jsonwebtoken), bcryptjs, Multer, ExcelJS, dotenv
-- **Frontend:** React, Vite, SheetJS (xlsx), qrcode.react, html5-qrcode
+- **Backend:** Node.js, Express, better-sqlite3, JWT (jsonwebtoken), bcryptjs, Multer, ExcelJS, sharp (image compression), dotenv
+- **Frontend:** React, Vite, SheetJS (xlsx), qrcode.react, html5-qrcode (QR + 1D barcode)
+
+> `sharp` is a native module. On a fresh server run `npm install` in `backend/` so its platform binary is fetched.
 
 ## Getting Started
 
@@ -108,11 +111,11 @@ Any logged-in user can change an item's status from the dropdown in the table.
 
 ## User Roles
 
-| Role                | Add / Edit basic fields\* | Edit serial number / received date | Change status | Delete | View log / recover deleted items | Manage users |
-| ------------------- | ------------------------- | ---------------------------------- | ------------- | ------ | -------------------------------- | ------------ |
-| `admin`             | ✅                        | ❌                                 | ✅            | ❌     | ❌                               | ❌           |
-| `super_admin`       | ✅                        | ✅                                 | ✅            | ✅     | ✅                               | ❌           |
-| `super_super_admin` | ✅                        | ✅                                 | ✅            | ✅     | ✅                               | ✅           |
+| Role                | Add / Edit basic fields\* | Edit serial number / received date | Change status | Write-off (แทงจำหน่าย) | View log / write-off archive | Manage users |
+| ------------------- | ------------------------- | ---------------------------------- | ------------- | --------------------- | ---------------------------- | ------------ |
+| `admin`             | ✅                        | ❌                                 | ✅            | ❌                    | ❌                           | ❌           |
+| `super_admin`       | ✅                        | ✅                                 | ✅            | ✅                    | ✅                           | ❌           |
+| `super_super_admin` | ✅                        | ✅                                 | ✅            | ✅                    | ✅                           | ✅           |
 
 \* Equipment name / building & room / responsible person / price
 
@@ -150,12 +153,13 @@ node set-role.js jsmith super_super_admin
 ## Features
 
 - Staff login (with "remember username") / guest mode (read-only, shows only equipment name, location, and responsible person — no serial number, price, or status)
-- Add / edit / delete equipment (permissions vary by role)
+- Add / edit equipment, and write off (แทงจำหน่าย) equipment with a required photo (permissions vary by role)
 - Change equipment status directly from the table (see the 5 categories above)
 - Search by serial number, equipment name, building, room, or responsible person
 - **QR codes**
   - Generate a printable/downloadable QR code per item (encodes the serial number) — available on desktop
   - Scan a QR code with the device camera to jump straight to that item — available on mobile/tablet (requires HTTPS, or `localhost`)
+- **Barcode scanning** — a second camera button next to "Scan QR" (mobile/tablet only) reads 1D barcodes (CODE 128/39/93, EAN, UPC, ITF, Codabar) from the equipment sticker and drops the value into the search box
 - **Excel import** — accepts `.xlsx` only. Columns are matched by header name (order and extra columns don't matter), so it also reads the university's central asset report format directly:
   - Recognizes both the app's own template headers (เลขครุภัณฑ์, ชื่ออุปกรณ์, ราคา (บาท), ...) and the central report's headers (สินทรัพย์, คำอธิบาย, ที่ตั้งสินทรัพย์ถาวร (ครุภัณฑ์), จำนวนเงิน, ...)
   - Automatically skips subtotal/category rows (rows with a label but no equipment name)
@@ -163,22 +167,27 @@ node set-role.js jsmith super_super_admin
   - The uploaded file must contain exactly one sheet — extract the relevant sheet (e.g. "RawData") into its own workbook first if the source file has multiple
   - **New serial numbers** are inserted; **duplicate serial numbers only have their status updated** (if the file's status differs) — all other fields (name, price, location, etc.) are left untouched
 - Export the currently filtered list to Excel
-- **Activity log** — every add, edit, delete, status change, and import is recorded with the username responsible (accessible via "View Log")
-- **Deleted-item recovery** — deleted equipment is archived for up to one year and can be viewed or exported to Excel via "Deleted Items" (auto-purged after one year)
+- **Activity log** — every add, edit, write-off, status change, and import is recorded with the username responsible (accessible via "View Log")
+- **Write-off archive (รายการแทงจำหน่าย)** — `super_admin` and above
+  - Writing off an item requires attaching a photo (or ticking "no photo" and giving a reason). The photo is compressed server-side with `sharp` (longest edge 1280px, JPEG q72, EXIF stripped — typically 150–250 KB) and stored as a BLOB.
+  - The text record (serial, name, price, who, when, note) is kept **permanently** — it is never purged.
+  - **Export to Excel** is generated server-side and embeds each item's photo in a trailing column. This exported file is the long-term archive of the photos.
+  - **Purge old photos** — an assisted button clears photo blobs older than *N* months, but only for photos that have already been included in an export. It shows the count and size first, and never touches the text record. Runs `VACUUM` afterwards to shrink the database file.
 - Change your own password
 - Responsive layout for mobile and tablet: hamburger menu, collapsible "add equipment" form, horizontally-scrollable table
 
 ## Utility Scripts
 
-| Script                     | Purpose                                                                                                                                                                                 |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `create-admin.js`          | Create a new user account from the command line                                                                                                                                         |
-| `set-role.js`              | Change an existing user's role, including granting `super_super_admin`                                                                                                                  |
-| `migrate-status-values.js` | One-time migration: converts old status values (`available`/`damaged`/`lost`) to the current 5-category scheme. Only needed if upgrading a database created before the 5-status system. |
+| Script            | Purpose                                                               |
+| ----------------- | -------------------------------------------------------------------- |
+| `create-admin.js` | Create a new user account from the command line                       |
+| `set-role.js`     | Change an existing user's role, including granting `super_super_admin` |
 
 ## Notes
 
-- The database is a single SQLite file (`physics_inventory.db`) inside `backend/` — back it up periodically.
+- The database is a single SQLite file (`physics_inventory.db`) inside `backend/` — back it up periodically. Write-off photos are stored inside this same file, so one backup covers everything.
+- Schema changes and column additions run automatically from `database.js` on startup; no manual migration step.
+- Recommended write-off photo workflow: export the write-off list to Excel every few months (the export embeds the photos), then use "Purge old photos" to reclaim space — it only clears photos that have already been exported.
 - Excel import requires a header row (row 1) with recognized column names, including at minimum a serial number column and a name column.
 - Imported rows with no matching status information default to "ใช้ได้".
 - The QR camera scanner requires HTTPS (or `localhost`) — it will not work over a plain `http://` connection on another device's IP address.
