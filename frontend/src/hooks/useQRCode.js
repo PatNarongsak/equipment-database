@@ -1,18 +1,38 @@
 import { useState, useRef, useEffect } from "react";
-import { Html5Qrcode } from "html5-qrcode";
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 
 const SCANNER_DIV_ID = "qr-scanner-region";
 
+// จำกัดฟอร์แมตที่ scanner จะลองอ่าน แยกตามโหมด - ช่วยให้อ่านเร็วขึ้นและแม่นขึ้น
+// (ไม่ต้องไล่เดาทุกฟอร์แมตในทุกเฟรม)
+const QR_FORMATS = [Html5QrcodeSupportedFormats.QR_CODE];
+
+// บาร์โค้ด 1 มิติที่พบบนสติกเกอร์ครุภัณฑ์ทั่วไป (เลขครุภัณฑ์/รหัสสินทรัพย์)
+const BARCODE_FORMATS = [
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.CODE_93,
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.UPC_E,
+  Html5QrcodeSupportedFormats.ITF,
+  Html5QrcodeSupportedFormats.CODABAR,
+];
+
 // รวม logic ของ QR Code: modal แสดง/ดาวน์โหลด/พิมพ์ QR ของแต่ละรายการ
 // และตัวสแกนกล้อง (ต้องส่ง setSearchTerm เข้ามา เพื่อเติมช่องค้นหาอัตโนมัติเมื่อสแกนเจอ)
+// ตัวสแกนใช้เครื่องเดียวกันทั้งโหมด QR และโหมดบาร์โค้ด ต่างกันแค่ฟอร์แมตที่รับ + ข้อความบน modal
 export function useQRCode({ setSearchTerm }) {
   const [qrCodeItem, setQrCodeItem] = useState(null); // item ที่กำลังโชว์ QR อยู่
   const [showScanner, setShowScanner] = useState(false);
+  const [scanMode, setScanMode] = useState("qr"); // "qr" | "barcode"
   const [scannerError, setScannerError] = useState("");
   const scannerRef = useRef(null); // เก็บ instance ของ Html5Qrcode
 
-  const openScanner = () => {
+  const openScanner = (mode = "qr") => {
     setScannerError("");
+    setScanMode(mode === "barcode" ? "barcode" : "qr");
     setShowScanner(true);
   };
 
@@ -36,7 +56,12 @@ export function useQRCode({ setSearchTerm }) {
   useEffect(() => {
     if (!showScanner) return;
 
-    const html5Qrcode = new Html5Qrcode(SCANNER_DIV_ID);
+    const isBarcode = scanMode === "barcode";
+
+    const html5Qrcode = new Html5Qrcode(SCANNER_DIV_ID, {
+      formatsToSupport: isBarcode ? BARCODE_FORMATS : QR_FORMATS,
+      verbose: false,
+    });
     scannerRef.current = html5Qrcode;
     let isStopped = false;
 
@@ -53,18 +78,23 @@ export function useQRCode({ setSearchTerm }) {
         });
     };
 
+    // บาร์โค้ดเป็นแถบแนวนอน ใช้กรอบกว้างเตี้ยจะเล็งง่ายกว่า / QR ใช้กรอบจัตุรัส
+    const qrbox = isBarcode
+      ? { width: 300, height: 150 }
+      : { width: 250, height: 250 };
+
     html5Qrcode
       .start(
         { facingMode: "environment" }, // ใช้กล้องหลังเป็นค่าเริ่มต้น (เหมาะกับมือถือ/แท็บเล็ต)
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        { fps: 10, qrbox },
         onScanSuccess,
-        () => {} // error callback ตอนยังไม่เจอ QR ในเฟรม ไม่ต้องแสดงอะไร
+        () => {} // error callback ตอนยังไม่เจอโค้ดในเฟรม ไม่ต้องแสดงอะไร
       )
       .catch((err) => {
         setScannerError(
           "ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการเข้าถึงกล้องในเบราว์เซอร์ หรือเช็คว่าเครื่องมีกล้องหรือไม่"
         );
-        console.error("QR Scanner start error:", err);
+        console.error("Scanner start error:", err);
       });
 
     // safety net เผื่อ component หลุดออกจาก DOM ด้วยเหตุผลอื่น (ไม่ใช่ทางหลักที่ใช้ปิดกล้องแล้ว
@@ -79,6 +109,7 @@ export function useQRCode({ setSearchTerm }) {
     qrCodeItem,
     setQrCodeItem,
     showScanner,
+    scanMode,
     scannerError,
     openScanner,
     closeScanner,

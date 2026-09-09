@@ -46,7 +46,17 @@ export function useEquipments({
   const [editError, setEditError] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  // ---------- Row action dropdown state (จัดการ: QR/แก้ไข/ลบ) ----------
+  // ---------- Write-off (แทงจำหน่าย) modal state ----------
+  // ต้องแนบรูปภาพครุภัณฑ์ก่อนถึงจะแทงจำหน่ายได้ (หรือติ๊ก "ไม่มีรูป" แล้วกรอกเหตุผล)
+  const [showWriteoffModal, setShowWriteoffModal] = useState(false);
+  const [writeoffItem, setWriteoffItem] = useState(null);
+  const [writeoffPhoto, setWriteoffPhoto] = useState(null); // File | null
+  const [writeoffNote, setWriteoffNote] = useState("");
+  const [writeoffNoPhoto, setWriteoffNoPhoto] = useState(false);
+  const [writeoffError, setWriteoffError] = useState("");
+  const [isWritingOff, setIsWritingOff] = useState(false);
+
+  // ---------- Row action dropdown state (จัดการ: QR/แก้ไข/แทงจำหน่าย) ----------
   const [actionMenuItem, setActionMenuItem] = useState(null);
   const [actionMenuPos, setActionMenuPos] = useState({ top: 0, left: 0 });
 
@@ -161,27 +171,73 @@ export function useEquipments({
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("คุณต้องการลบรายการนี้ใช่หรือไม่?")) return;
+  const openWriteoffModal = (item) => {
+    setWriteoffItem(item);
+    setWriteoffPhoto(null);
+    setWriteoffNote("");
+    setWriteoffNoPhoto(false);
+    setWriteoffError("");
+    setShowWriteoffModal(true);
+  };
 
+  const closeWriteoffModal = () => {
+    setShowWriteoffModal(false);
+    setWriteoffItem(null);
+    setWriteoffPhoto(null);
+    setWriteoffNote("");
+    setWriteoffNoPhoto(false);
+    setWriteoffError("");
+  };
+
+  const handleWriteoffSubmit = async (e) => {
+    e.preventDefault();
+    setWriteoffError("");
+
+    const note = writeoffNote.trim();
+    if (writeoffNoPhoto) {
+      if (!note) {
+        setWriteoffError("กรุณาระบุเหตุผลที่ไม่มีรูปภาพ");
+        return;
+      }
+    } else if (!writeoffPhoto) {
+      setWriteoffError("กรุณาแนบรูปภาพครุภัณฑ์ หรือติ๊ก “ไม่มีรูปภาพ” แล้วระบุเหตุผล");
+      return;
+    }
+
+    const formData = new FormData();
+    if (writeoffNoPhoto) {
+      formData.append("writeoff_note", note);
+    } else {
+      formData.append("photo", writeoffPhoto);
+      if (note) formData.append("writeoff_note", note);
+    }
+
+    setIsWritingOff(true);
     try {
-      const res = await authFetch(`/equipments/${id}`, { method: "DELETE" });
+      // ไม่ใช้ authFetchJson เพราะเป็น FormData (ต้องให้ browser ตั้ง Content-Type/boundary เอง)
+      const res = await authFetch(`/equipments/${writeoffItem.equipment_id}`, {
+        method: "DELETE",
+        body: formData,
+      });
 
       if (
         await handleAuthError(res, {
-          onPermissionDenied: (msg) => alert(`${msg}`),
+          onPermissionDenied: (msg) => setWriteoffError(msg),
         })
       )
         return;
 
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
+        closeWriteoffModal();
         fetchEquipments();
       } else {
-        alert(`${data.message || "ลบไม่สำเร็จ"}`);
+        setWriteoffError(data.message || "แทงจำหน่ายไม่สำเร็จ");
       }
     } catch (err) {
-      alert("เกิดข้อผิดพลาดในการลบข้อมูล");
+      setWriteoffError("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
+    } finally {
+      setIsWritingOff(false);
     }
   };
 
@@ -396,12 +452,25 @@ export function useEquipments({
     toggleActionMenu,
     fetchEquipments,
     handleSubmit,
-    handleDelete,
     openEditModal,
     closeEditModal,
     handleEditSubmit,
     handleStatusChange,
     handleImportExcel,
     exportToExcel,
+    // ---------- แทงจำหน่าย ----------
+    showWriteoffModal,
+    writeoffItem,
+    writeoffPhoto,
+    setWriteoffPhoto,
+    writeoffNote,
+    setWriteoffNote,
+    writeoffNoPhoto,
+    setWriteoffNoPhoto,
+    writeoffError,
+    isWritingOff,
+    openWriteoffModal,
+    closeWriteoffModal,
+    handleWriteoffSubmit,
   };
 }

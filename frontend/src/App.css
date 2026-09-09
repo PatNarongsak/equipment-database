@@ -729,6 +729,24 @@ body {
   background: #6d28d9;
 }
 
+.btn-barcode-scan {
+  display: none; /* ซ่อนบนจอคอมพิวเตอร์ - แสดงเฉพาะแท็บเล็ต/มือถือ (ดู media query ด้านล่าง) */
+  background: #0d9488;
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.btn-barcode-scan:hover {
+  background: #0f766e;
+}
+
 .serial-no-row {
   display: inline-flex;
   align-items: center;
@@ -878,8 +896,9 @@ body {
     margin-bottom: 24px;
   }
 
-  /* ปุ่ม "สแกน QR" มีประโยชน์เฉพาะแท็บเล็ต/มือถือ (ใช้กล้องสแกน) - จอคอมไม่ได้ใช้ */
-  .btn-scan {
+  /* ปุ่ม "สแกน QR" / "สแกนบาร์โค้ด" มีประโยชน์เฉพาะแท็บเล็ต/มือถือ (ใช้กล้องสแกน) - จอคอมไม่ได้ใช้ */
+  .btn-scan,
+  .btn-barcode-scan {
     display: inline-block;
   }
 
@@ -989,7 +1008,8 @@ body {
 
   .btn-import,
   .btn-export,
-  .btn-scan {
+  .btn-scan,
+  .btn-barcode-scan {
     flex: 1 1 auto;
     min-width: 0;
     justify-content: center;
@@ -1048,4 +1068,147 @@ body {
   .qr-modal-box {
     max-width: 100%;
   }
+}
+
+/* ================= แทงจำหน่าย (write-off) ================= */
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-danger:hover {
+  background: #b91c1c;
+}
+.btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.writeoff-target {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.writeoff-preview {
+  display: block;
+  margin-top: 10px;
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.writeoff-nophoto-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+/* toolbar ของ modal รายการแทงจำหน่าย */
+.writeoff-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.purge-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  color: #475569;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.purge-months-input {
+  width: 56px;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.purge-preview-text {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.writeoff-photo-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.photo-tag {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #92400e;
+}
+.photo-tag-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+.photo-tag-muted {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+/* lightbox แสดงรูปเต็ม */
+.photo-lightbox {
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.8);
+  cursor: zoom-out;
+}
+.photo-lightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  border-radius: 8px;
+}
+
+.form-group textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #0f172a;
+  font-size: 0.95rem;
+  resize: vertical;
+}
+.form-group textarea:focus {
+  outline: none;
+  border-color: #0891b2;
+}
+.form-group input[type="file"] {
+  width: 100%;
+  font-size: 0.9rem;
 }

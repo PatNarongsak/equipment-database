@@ -4,7 +4,7 @@ export default function ActionMenu({
   setActionMenuItem,
   setQrCodeItem,
   openEditModal,
-  handleDelete,
+  openWriteoffModal,
   isSuperAdmin,
 }) {
   if (!actionMenuItem) return null;
@@ -35,12 +35,12 @@ export default function ActionMenu({
       {isSuperAdmin && (
         <button
           onClick={() => {
-            handleDelete(actionMenuItem.equipment_id);
+            openWriteoffModal(actionMenuItem);
             setActionMenuItem(null);
           }}
           className="action-dropdown-item action-dropdown-item-danger"
         >
-          ลบ
+          แทงจำหน่าย
         </button>
       )}
     </div>

@@ -66,7 +66,7 @@ export default function Header({
                   }}
                   className="btn-secondary"
                 >
-                  รายการที่ถูกลบ
+                  รายการแทงจำหน่าย
                 </button>
               </>
             )}

@@ -18,6 +18,7 @@ import LogsModal from "./components/modals/LogsModal";
 import DeletedItemsModal from "./components/modals/DeletedItemsModal";
 import UserManagementModal from "./components/modals/UserManagementModal";
 import EditEquipmentModal from "./components/modals/EditEquipmentModal";
+import WriteoffModal from "./components/modals/WriteoffModal";
 
 function App() {
   // ---------- Mobile UI state (เล็กพอที่จะเก็บไว้ตรงนี้ ไม่แยก hook) ----------
@@ -36,7 +37,7 @@ function App() {
     isSuperAdmin: auth.isSuperAdmin,
   });
 
-  // ---------- Log / รายการที่ถูกลบ / จัดการผู้ใช้ (เฉพาะ super_admin ขึ้นไป) ----------
+  // ---------- Log / รายการแทงจำหน่าย / จัดการผู้ใช้ (เฉพาะ super_admin ขึ้นไป) ----------
   const admin = useAdminPanels({
     authFetch: auth.authFetch,
     authFetchJson: auth.authFetchJson,
@@ -106,6 +107,17 @@ function App() {
           deletedItems={admin.deletedItems}
           isLoadingDeleted={admin.isLoadingDeleted}
           exportDeletedToExcel={admin.exportDeletedToExcel}
+          isExportingDeleted={admin.isExportingDeleted}
+          photoPreviewUrl={admin.photoPreviewUrl}
+          isLoadingPhoto={admin.isLoadingPhoto}
+          openPhotoPreview={admin.openPhotoPreview}
+          closePhotoPreview={admin.closePhotoPreview}
+          purgeMonths={admin.purgeMonths}
+          setPurgeMonths={admin.setPurgeMonths}
+          purgePreview={admin.purgePreview}
+          previewPurgePhotos={admin.previewPurgePhotos}
+          runPurgePhotos={admin.runPurgePhotos}
+          isPurging={admin.isPurging}
         />
       )}
 
@@ -143,9 +155,25 @@ function App() {
         setActionMenuItem={equip.setActionMenuItem}
         setQrCodeItem={qr.setQrCodeItem}
         openEditModal={equip.openEditModal}
-        handleDelete={equip.handleDelete}
+        openWriteoffModal={equip.openWriteoffModal}
         isSuperAdmin={auth.isSuperAdmin}
       />
+
+      {equip.showWriteoffModal && (
+        <WriteoffModal
+          onClose={equip.closeWriteoffModal}
+          item={equip.writeoffItem}
+          photo={equip.writeoffPhoto}
+          setPhoto={equip.setWriteoffPhoto}
+          note={equip.writeoffNote}
+          setNote={equip.setWriteoffNote}
+          noPhoto={equip.writeoffNoPhoto}
+          setNoPhoto={equip.setWriteoffNoPhoto}
+          error={equip.writeoffError}
+          isSubmitting={equip.isWritingOff}
+          onSubmit={equip.handleWriteoffSubmit}
+        />
+      )}
 
       <QRCodeModal
         qrCodeItem={qr.qrCodeItem}
@@ -157,6 +185,7 @@ function App() {
         closeScanner={qr.closeScanner}
         scannerError={qr.scannerError}
         scannerDivId={qr.scannerDivId}
+        scanMode={qr.scanMode}
       />
 
       <main

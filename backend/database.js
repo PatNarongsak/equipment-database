@@ -41,7 +41,7 @@ db.exec(`
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 
-  -- เก็บสำเนาครุภัณฑ์ที่ถูกลบไว้ (สำหรับ export และเก็บย้อนหลังได้ 1 ปี)
+  -- เก็บสำเนาครุภัณฑ์ที่ถูกแทงจำหน่าย (record ตัวอักษร - เก็บถาวร ไม่มีการล้าง)
   CREATE TABLE IF NOT EXISTS deleted_equipments (
     deleted_id INTEGER PRIMARY KEY AUTOINCREMENT,
     equipment_id INTEGER,
@@ -57,7 +57,27 @@ db.exec(`
     deleted_by TEXT,
     deleted_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- เก็บรูปภาพครุภัณฑ์ตอนแทงจำหน่าย (BLOB ที่บีบอัดแล้ว) แยกจาก record ตัวอักษร
+  -- image = NULL หมายถึงรูปถูกล้างทิ้งไปแล้ว (record ตัวอักษรใน deleted_equipments ยังอยู่)
+  -- exported_at = เวลาที่รูปนี้ถูกใส่ลงไฟล์ Excel ครั้งล่าสุด (ล้างได้เฉพาะรูปที่ export แล้ว)
+  CREATE TABLE IF NOT EXISTS writeoff_photos (
+    photo_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deleted_id INTEGER NOT NULL REFERENCES deleted_equipments(deleted_id) ON DELETE CASCADE,
+    image BLOB,
+    bytes INTEGER,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    exported_at TEXT,
+    purged_at TEXT
+  );
 `);
+
+// migration: เพิ่มคอลัมน์ writeoff_note ให้ deleted_equipments (ไฟล์ DB เก่ายังไม่มี)
+// ใช้กรณีแทงจำหน่ายโดยไม่มีรูป (เช่น ครุภัณฑ์สูญหาย) - ต้องกรอกเหตุผลแทน
+const deletedCols = db.prepare("PRAGMA table_info(deleted_equipments)").all();
+if (!deletedCols.some((c) => c.name === 'writeoff_note')) {
+  db.exec("ALTER TABLE deleted_equipments ADD COLUMN writeoff_note TEXT");
+}
 
 // สร้าง Admin เริ่มต้นถ้ายังไม่มีในระบบ (Username: admin / Password: adminpassword)
 // บัญชีแรกนี้ได้สิทธิ์ super_super_admin สูงสุด (ลบข้อมูลได้ + จัดการผู้ใช้ได้) เพราะเป็นบัญชีตั้งต้นของระบบ

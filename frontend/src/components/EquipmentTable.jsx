@@ -34,8 +34,14 @@ export default function EquipmentTable({
           <button onClick={exportToExcel} className="btn-export">
             Export Excel
           </button>
-          <button onClick={openScanner} className="btn-scan">
+          <button onClick={() => openScanner("qr")} className="btn-scan">
             สแกน QR
+          </button>
+          <button
+            onClick={() => openScanner("barcode")}
+            className="btn-barcode-scan"
+          >
+            สแกนบาร์โค้ด
           </button>
           <input
             type="text"
