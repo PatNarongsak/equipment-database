@@ -16,6 +16,7 @@ import QRScannerModal from "./components/QRScannerModal";
 import ChangePasswordModal from "./components/modals/ChangePasswordModal";
 import LogsModal from "./components/modals/LogsModal";
 import DeletedItemsModal from "./components/modals/DeletedItemsModal";
+import ExportHistoryModal from "./components/modals/ExportHistoryModal";
 import UserManagementModal from "./components/modals/UserManagementModal";
 import EditEquipmentModal from "./components/modals/EditEquipmentModal";
 import WriteoffModal from "./components/modals/WriteoffModal";
@@ -108,16 +109,24 @@ function App() {
           isLoadingDeleted={admin.isLoadingDeleted}
           exportDeletedToExcel={admin.exportDeletedToExcel}
           isExportingDeleted={admin.isExportingDeleted}
+          openExportHistory={admin.openExportHistory}
           photoPreviewUrl={admin.photoPreviewUrl}
           isLoadingPhoto={admin.isLoadingPhoto}
           openPhotoPreview={admin.openPhotoPreview}
           closePhotoPreview={admin.closePhotoPreview}
-          purgeMonths={admin.purgeMonths}
-          setPurgeMonths={admin.setPurgeMonths}
-          purgePreview={admin.purgePreview}
-          previewPurgePhotos={admin.previewPurgePhotos}
-          runPurgePhotos={admin.runPurgePhotos}
-          isPurging={admin.isPurging}
+        />
+      )}
+
+      {admin.showExportHistory && (
+        <ExportHistoryModal
+          onClose={() => admin.setShowExportHistory(false)}
+          batches={admin.exportBatches}
+          isLoadingBatches={admin.isLoadingBatches}
+          batchItems={admin.batchItems}
+          openBatchId={admin.openBatchId}
+          viewBatchItems={admin.viewBatchItems}
+          deleteBatch={admin.deleteBatch}
+          isDeletingBatch={admin.isDeletingBatch}
         />
       )}
 
@@ -163,15 +172,9 @@ function App() {
         <WriteoffModal
           onClose={equip.closeWriteoffModal}
           item={equip.writeoffItem}
-          photo={equip.writeoffPhoto}
-          setPhoto={equip.setWriteoffPhoto}
-          note={equip.writeoffNote}
-          setNote={equip.setWriteoffNote}
-          noPhoto={equip.writeoffNoPhoto}
-          setNoPhoto={equip.setWriteoffNoPhoto}
           error={equip.writeoffError}
           isSubmitting={equip.isWritingOff}
-          onSubmit={equip.handleWriteoffSubmit}
+          onSubmit={equip.submitWriteoff}
         />
       )}
 
@@ -189,9 +192,13 @@ function App() {
       />
 
       <main
-        className={auth.isGuest ? "main-content guest-mode" : "main-content"}
+        className={
+          auth.isGuest || !auth.isSuperAdmin
+            ? "main-content guest-mode"
+            : "main-content"
+        }
       >
-        {!auth.isGuest && (
+        {!auth.isGuest && auth.isSuperAdmin && (
           <EquipmentForm
             showAddFormMobile={showAddFormMobile}
             setShowAddFormMobile={setShowAddFormMobile}

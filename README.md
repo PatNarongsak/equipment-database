@@ -111,13 +111,13 @@ Any logged-in user can change an item's status from the dropdown in the table.
 
 ## User Roles
 
-| Role                | Add / Edit basic fields\* | Edit serial number / received date | Change status | Write-off (แทงจำหน่าย) | View log / write-off archive | Manage users |
-| ------------------- | ------------------------- | ---------------------------------- | ------------- | --------------------- | ---------------------------- | ------------ |
-| `admin`             | ✅                        | ❌                                 | ✅            | ❌                    | ❌                           | ❌           |
-| `super_admin`       | ✅                        | ✅                                 | ✅            | ✅                    | ✅                           | ❌           |
-| `super_super_admin` | ✅                        | ✅                                 | ✅            | ✅                    | ✅                           | ✅           |
+| Role                | Add equipment / Excel import | Edit location & responsible person | Edit name / price / serial number / received date | Change status | Write-off (แทงจำหน่าย) | View log / write-off archive | Manage users |
+| ------------------- | --------------------------- | ---------------------------------- | ------------------------------------------------ | ------------- | --------------------- | ---------------------------- | ------------ |
+| `admin`             | ❌                          | ✅                                 | ❌                                               | ✅            | ❌                    | ❌                           | ❌           |
+| `super_admin`       | ✅                          | ✅                                 | ✅                                               | ✅            | ✅                    | ✅                           | ❌           |
+| `super_super_admin` | ✅                          | ✅                                 | ✅                                               | ✅            | ✅                    | ✅                           | ✅           |
 
-\* Equipment name / building & room / responsible person / price
+Location = building & room. A regular `admin` is intentionally limited: they can only change an item's status and edit its location / responsible person. Adding equipment, importing from Excel, and editing name / price / serial / date all require `super_admin` or above.
 
 ### Default Account
 
