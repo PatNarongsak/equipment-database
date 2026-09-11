@@ -3,29 +3,13 @@ import { STATUS_CLASS_MAP, STATUS_LABELS } from "../../constants";
 function PhotoCell({ item, onView }) {
   if (item.has_photo) {
     return (
-      <div className="writeoff-photo-cell">
-        <button
-          type="button"
-          className="btn-link"
-          onClick={() => onView(item.deleted_id)}
-        >
-          ดูรูป
-        </button>
-        <span
-          className={
-            item.photo_exported_at ? "photo-tag photo-tag-ok" : "photo-tag"
-          }
-        >
-          {item.photo_exported_at ? "export แล้ว" : "ยังไม่ export"}
-        </span>
-      </div>
-    );
-  }
-  if (item.photo_purged_at) {
-    return (
-      <span className="photo-tag photo-tag-muted">
-        รูปถูกล้าง {String(item.photo_purged_at).slice(0, 10)}
-      </span>
+      <button
+        type="button"
+        className="btn-link"
+        onClick={() => onView(item.deleted_id)}
+      >
+        ดูรูป
+      </button>
     );
   }
   if (item.writeoff_note) {
@@ -40,16 +24,11 @@ export default function DeletedItemsModal({
   isLoadingDeleted,
   exportDeletedToExcel,
   isExportingDeleted,
+  openExportHistory,
   photoPreviewUrl,
   isLoadingPhoto,
   openPhotoPreview,
   closePhotoPreview,
-  purgeMonths,
-  setPurgeMonths,
-  purgePreview,
-  previewPurgePhotos,
-  runPurgePhotos,
-  isPurging,
 }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -58,7 +37,7 @@ export default function DeletedItemsModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h3>รายการครุภัณฑ์แทงจำหน่าย</h3>
+          <h3>รายการแทงจำหน่าย</h3>
           <button className="modal-close" onClick={onClose} aria-label="ปิด">
             ✕
           </button>
@@ -68,47 +47,20 @@ export default function DeletedItemsModal({
           <button
             onClick={exportDeletedToExcel}
             className="btn-export"
-            disabled={isExportingDeleted}
+            disabled={isExportingDeleted || deletedItems.length === 0}
           >
-            {isExportingDeleted ? "กำลังสร้างไฟล์..." : "Export Excel (พร้อมรูป)"}
+            {isExportingDeleted ? "กำลังสร้างไฟล์..." : "Export Excel"}
           </button>
-
-          <div className="purge-panel">
-            <span>ล้างรูปภาพที่เก่ากว่า</span>
-            <input
-              type="number"
-              min={1}
-              value={purgeMonths}
-              onChange={(e) => setPurgeMonths(e.target.value)}
-              className="purge-months-input"
-            />
-            <span>เดือน</span>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={previewPurgePhotos}
-            >
-              ตรวจสอบ
-            </button>
-            {purgePreview && (
-              <>
-                <span className="purge-preview-text">
-                  จะล้าง {purgePreview.eligibleCount} รูป (~
-                  {(purgePreview.eligibleBytes / 1024 / 1024).toFixed(1)} MB)
-                  {purgePreview.skippedNotExportedCount > 0 &&
-                    ` · ข้าม ${purgePreview.skippedNotExportedCount} รูปที่ยังไม่ export`}
-                </span>
-                <button
-                  type="button"
-                  className="btn-danger"
-                  onClick={runPurgePhotos}
-                  disabled={isPurging || purgePreview.eligibleCount === 0}
-                >
-                  {isPurging ? "กำลังล้าง..." : "ยืนยันล้าง"}
-                </button>
-              </>
-            )}
-          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              onClose();
+              openExportHistory();
+            }}
+          >
+            ประวัติการ export
+          </button>
         </div>
 
         <div className="modal-scroll-table">
@@ -117,24 +69,25 @@ export default function DeletedItemsModal({
               <tr>
                 <th>เลขครุภัณฑ์</th>
                 <th>ชื่ออุปกรณ์</th>
+                <th>ลำดับที่</th>
                 <th>สถานะก่อนแทงจำหน่าย</th>
+                <th>เหตุผลที่ขอจำหน่าย</th>
                 <th>แทงจำหน่ายโดย</th>
-                <th>วันที่แทงจำหน่าย</th>
-                <th>หมายเหตุ</th>
+                <th>วันที่</th>
                 <th>รูปภาพ</th>
               </tr>
             </thead>
             <tbody>
               {isLoadingDeleted ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center" }}>
+                  <td colSpan={8} style={{ textAlign: "center" }}>
                     กำลังโหลด...
                   </td>
                 </tr>
               ) : deletedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center" }}>
-                    ยังไม่มีรายการแทงจำหน่าย
+                  <td colSpan={8} style={{ textAlign: "center" }}>
+                    ไม่มีรายการที่รอ Export
                   </td>
                 </tr>
               ) : (
@@ -142,6 +95,7 @@ export default function DeletedItemsModal({
                   <tr key={item.deleted_id}>
                     <td className="serial-no">{item.serial_number}</td>
                     <td>{item.name}</td>
+                    <td>{item.report_no || "-"}</td>
                     <td>
                       <span
                         className={`status-badge status-${
@@ -151,9 +105,9 @@ export default function DeletedItemsModal({
                         {STATUS_LABELS[item.status] || item.status}
                       </span>
                     </td>
+                    <td>{item.disposal_reason || "-"}</td>
                     <td>{item.deleted_by}</td>
                     <td>{item.deleted_at}</td>
-                    <td>{item.writeoff_note || "-"}</td>
                     <td>
                       <PhotoCell item={item} onView={openPhotoPreview} />
                     </td>

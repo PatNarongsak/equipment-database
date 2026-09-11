@@ -19,7 +19,7 @@ export default function EquipmentTable({
       <div className="list-header">
         <h3>รายการครุภัณฑ์ทั้งหมด ({filteredEquipments.length})</h3>
         <div style={{ display: "flex", gap: "10px" }}>
-          {!isGuest && (
+          {isSuperAdmin && (
             <label className="btn-import">
               {isImporting ? "กำลังนำเข้า..." : "Import Excel"}
               <input

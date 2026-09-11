@@ -46,13 +46,11 @@ export function useEquipments({
   const [editError, setEditError] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  // ---------- Write-off (แทงจำหน่าย) modal state ----------
-  // ต้องแนบรูปภาพครุภัณฑ์ก่อนถึงจะแทงจำหน่ายได้ (หรือติ๊ก "ไม่มีรูป" แล้วกรอกเหตุผล)
+  // ---------- Write-off (แทงจำหน่าย) modal ----------
+  // หมายเหตุ: state ของฟอร์ม (12 ช่อง + รูป + note) อยู่ใน WriteoffModal เอง
+  // เพื่อไม่ให้การพิมพ์แต่ละตัวอักษร re-render ทั้ง App (ตารางครุภัณฑ์ ~1500 แถว)
   const [showWriteoffModal, setShowWriteoffModal] = useState(false);
   const [writeoffItem, setWriteoffItem] = useState(null);
-  const [writeoffPhoto, setWriteoffPhoto] = useState(null); // File | null
-  const [writeoffNote, setWriteoffNote] = useState("");
-  const [writeoffNoPhoto, setWriteoffNoPhoto] = useState(false);
   const [writeoffError, setWriteoffError] = useState("");
   const [isWritingOff, setIsWritingOff] = useState(false);
 
@@ -173,9 +171,6 @@ export function useEquipments({
 
   const openWriteoffModal = (item) => {
     setWriteoffItem(item);
-    setWriteoffPhoto(null);
-    setWriteoffNote("");
-    setWriteoffNoPhoto(false);
     setWriteoffError("");
     setShowWriteoffModal(true);
   };
@@ -183,35 +178,12 @@ export function useEquipments({
   const closeWriteoffModal = () => {
     setShowWriteoffModal(false);
     setWriteoffItem(null);
-    setWriteoffPhoto(null);
-    setWriteoffNote("");
-    setWriteoffNoPhoto(false);
     setWriteoffError("");
   };
 
-  const handleWriteoffSubmit = async (e) => {
-    e.preventDefault();
+  // รับ FormData ที่ WriteoffModal ประกอบ + validate มาแล้ว
+  const submitWriteoff = async (formData) => {
     setWriteoffError("");
-
-    const note = writeoffNote.trim();
-    if (writeoffNoPhoto) {
-      if (!note) {
-        setWriteoffError("กรุณาระบุเหตุผลที่ไม่มีรูปภาพ");
-        return;
-      }
-    } else if (!writeoffPhoto) {
-      setWriteoffError("กรุณาแนบรูปภาพครุภัณฑ์ หรือติ๊ก “ไม่มีรูปภาพ” แล้วระบุเหตุผล");
-      return;
-    }
-
-    const formData = new FormData();
-    if (writeoffNoPhoto) {
-      formData.append("writeoff_note", note);
-    } else {
-      formData.append("photo", writeoffPhoto);
-      if (note) formData.append("writeoff_note", note);
-    }
-
     setIsWritingOff(true);
     try {
       // ไม่ใช้ authFetchJson เพราะเป็น FormData (ต้องให้ browser ตั้ง Content-Type/boundary เอง)
@@ -234,7 +206,7 @@ export function useEquipments({
       } else {
         setWriteoffError(data.message || "แทงจำหน่ายไม่สำเร็จ");
       }
-    } catch (err) {
+    } catch {
       setWriteoffError("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
     } finally {
       setIsWritingOff(false);
@@ -266,7 +238,8 @@ export function useEquipments({
     e.preventDefault();
     setEditError("");
 
-    if (!editForm.name.trim()) {
+    // Admin ทั่วไปแก้ได้แค่ สถานที่ / ผู้รับผิดชอบ - ชื่อ/ราคา/เลขครุภัณฑ์/วันที่รับ เฉพาะ Super Admin ขึ้นไป
+    if (isSuperAdmin && !editForm.name.trim()) {
       setEditError("กรุณากรอกชื่ออุปกรณ์");
       return;
     }
@@ -277,13 +250,13 @@ export function useEquipments({
 
     setIsSavingEdit(true);
     const payload = {
-      name: editForm.name,
       building: editForm.building || null,
       room: editForm.room || null,
       responsible_person: editForm.responsible_person || null,
-      price: editForm.price ? parseFloat(editForm.price) : null,
     };
     if (isSuperAdmin) {
+      payload.name = editForm.name;
+      payload.price = editForm.price ? parseFloat(editForm.price) : null;
       payload.serial_number = editForm.serial_number;
       payload.received_date = editForm.received_date || null;
     }
@@ -461,16 +434,10 @@ export function useEquipments({
     // ---------- แทงจำหน่าย ----------
     showWriteoffModal,
     writeoffItem,
-    writeoffPhoto,
-    setWriteoffPhoto,
-    writeoffNote,
-    setWriteoffNote,
-    writeoffNoPhoto,
-    setWriteoffNoPhoto,
     writeoffError,
     isWritingOff,
     openWriteoffModal,
     closeWriteoffModal,
-    handleWriteoffSubmit,
+    submitWriteoff,
   };
 }

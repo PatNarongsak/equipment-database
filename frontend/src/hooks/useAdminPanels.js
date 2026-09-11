@@ -29,7 +29,19 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
     fetchLogs();
   };
 
-  // ---------- Deleted equipments archive / รายการแทงจำหน่าย ----------
+  // ดาวน์โหลด blob ที่ได้จาก endpoint ที่ต้องแนบ token (ใช้ <a download> ธรรมดาแนบ header ไม่ได้)
+  const downloadBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // ---------- รายการแทงจำหน่าย (ที่รอ export) ----------
   const [showDeleted, setShowDeleted] = useState(false);
   const [deletedItems, setDeletedItems] = useState([]);
   const [isLoadingDeleted, setIsLoadingDeleted] = useState(false);
@@ -38,11 +50,6 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
   // preview รูปภาพ (lightbox ในตาราง)
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
   const [isLoadingPhoto, setIsLoadingPhoto] = useState(false);
-
-  // purge รูปภาพเก่า
-  const [purgeMonths, setPurgeMonths] = useState(6);
-  const [purgePreview, setPurgePreview] = useState(null); // { eligibleCount, eligibleBytes, skippedNotExportedCount }
-  const [isPurging, setIsPurging] = useState(false);
 
   const fetchDeletedItems = async () => {
     setIsLoadingDeleted(true);
@@ -62,23 +69,11 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
 
   const openDeleted = () => {
     setShowDeleted(true);
-    setPurgePreview(null);
     fetchDeletedItems();
   };
 
-  // ดาวน์โหลด blob ที่ได้จาก endpoint ที่ต้องแนบ token (ใช้ <a download> ธรรมดาแนบ header ไม่ได้)
-  const downloadBlob = (blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  // Export .xlsx (สร้างฝั่ง server พร้อมฝังรูปภาพ) - เป็น archive ถาวรของรูป
+  // Export .xlsx (สร้างฝั่ง server: sheet สรุป + 1 sheet ต่อรายการ ตามเทมเพลต)
+  // หลัง export server จะย้ายรายการเข้าประวัติการ export -> โหลดตารางใหม่ (จะว่าง)
   const exportDeletedToExcel = async () => {
     setIsExportingDeleted(true);
     try {
@@ -96,7 +91,7 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
         blob,
         `รายการครุภัณฑ์แทงจำหน่าย_${new Date().toISOString().slice(0, 10)}.xlsx`
       );
-      // export แล้วรูปถูก stamp exported_at ที่ server - โหลดตารางใหม่ให้สถานะอัปเดต
+      alert("Export สำเร็จ — รายการถูกย้ายไปที่ “ประวัติการ export” แล้ว");
       fetchDeletedItems();
     } catch {
       alert("เกิดข้อผิดพลาดในการดาวน์โหลดไฟล์");
@@ -130,60 +125,80 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
     setPhotoPreviewUrl("");
   };
 
-  // ดูก่อนว่าจะล้างรูปกี่รูป/กี่ MB (ไม่ลบจริง)
-  const previewPurgePhotos = async () => {
-    setPurgePreview(null);
+  // ---------- ประวัติการ export ----------
+  const [showExportHistory, setShowExportHistory] = useState(false);
+  const [exportBatches, setExportBatches] = useState([]);
+  const [isLoadingBatches, setIsLoadingBatches] = useState(false);
+  const [openBatchId, setOpenBatchId] = useState(null);
+  const [batchItems, setBatchItems] = useState([]);
+  const [isDeletingBatch, setIsDeletingBatch] = useState(false);
+
+  const fetchExportBatches = async () => {
+    setIsLoadingBatches(true);
     try {
-      const res = await authFetch(
-        `/deleted-equipments/purge-photos/preview?olderThanMonths=${purgeMonths}`
-      );
+      const res = await authFetch("/export-batches");
       if (await handleAuthError(res)) return;
       const data = await res.json();
-      if (data.success) {
-        setPurgePreview(data);
-      } else {
-        alert(data.message || "ตรวจสอบไม่สำเร็จ");
-      }
-    } catch {
-      alert("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
+      if (data.success) setExportBatches(data.data);
+    } catch (err) {
+      console.error("Error fetching export batches:", err);
+    } finally {
+      setIsLoadingBatches(false);
     }
   };
 
-  // ล้าง blob รูปภาพที่ export แล้ว + เก่ากว่าที่กำหนด
-  const runPurgePhotos = async () => {
+  const openExportHistory = () => {
+    setShowExportHistory(true);
+    setOpenBatchId(null);
+    setBatchItems([]);
+    fetchExportBatches();
+  };
+
+  const viewBatchItems = async (batchId) => {
+    if (openBatchId === batchId) {
+      setOpenBatchId(null);
+      setBatchItems([]);
+      return;
+    }
+    try {
+      const res = await authFetch(`/export-batches/${batchId}/items`);
+      if (await handleAuthError(res)) return;
+      const data = await res.json();
+      if (data.success) {
+        setBatchItems(data.data);
+        setOpenBatchId(batchId);
+      }
+    } catch {
+      alert("เกิดข้อผิดพลาดในการโหลดรายการ");
+    }
+  };
+
+  const deleteBatch = async (batchId) => {
     if (
       !window.confirm(
-        `ยืนยันล้างรูปภาพที่เก่ากว่า ${purgeMonths} เดือน (เฉพาะที่ export แล้ว)?\nรายการตัวอักษรจะยังอยู่ครบ`
+        "ลบประวัติการ export นี้?\nรายการครุภัณฑ์ใน batch นี้จะถูกลบออกจากระบบ (ไฟล์ Excel ที่ดาวน์โหลดไปแล้วยังอยู่)"
       )
     )
       return;
 
-    setIsPurging(true);
+    setIsDeletingBatch(true);
     try {
-      const res = await authFetch("/deleted-equipments/purge-photos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ olderThanMonths: Number(purgeMonths) }),
+      const res = await authFetch(`/export-batches/${batchId}`, {
+        method: "DELETE",
       });
       if (await handleAuthError(res)) return;
-
       const data = await res.json();
       if (data.success) {
-        const mb = (data.freedBytes / 1024 / 1024).toFixed(1);
-        alert(
-          data.purgedCount > 0
-            ? `ล้างรูปภาพ ${data.purgedCount} รูป (~${mb} MB) เรียบร้อย`
-            : data.message || "ไม่มีรูปภาพที่เข้าเงื่อนไข"
-        );
-        setPurgePreview(null);
-        fetchDeletedItems();
+        setOpenBatchId(null);
+        setBatchItems([]);
+        fetchExportBatches();
       } else {
-        alert(data.message || "ล้างรูปภาพไม่สำเร็จ");
+        alert(data.message || "ลบไม่สำเร็จ");
       }
     } catch {
       alert("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
     } finally {
-      setIsPurging(false);
+      setIsDeletingBatch(false);
     }
   };
 
@@ -316,12 +331,16 @@ export function useAdminPanels({ authFetch, authFetchJson, handleAuthError }) {
     isLoadingPhoto,
     openPhotoPreview,
     closePhotoPreview,
-    purgeMonths,
-    setPurgeMonths,
-    purgePreview,
-    previewPurgePhotos,
-    runPurgePhotos,
-    isPurging,
+    showExportHistory,
+    setShowExportHistory,
+    exportBatches,
+    isLoadingBatches,
+    openExportHistory,
+    openBatchId,
+    batchItems,
+    viewBatchItems,
+    deleteBatch,
+    isDeletingBatch,
     openUserManagement,
     showUserManagement,
     setShowUserManagement,

@@ -35,18 +35,20 @@ export default function EditEquipmentModal({
               />
             </div>
           )}
-          <div className="form-group">
-            <label htmlFor="edit-name">ชื่ออุปกรณ์</label>
-            <input
-              id="edit-name"
-              type="text"
-              value={editForm.name}
-              onChange={(e) =>
-                setEditForm({ ...editForm, name: e.target.value })
-              }
-              required
-            />
-          </div>
+          {isSuperAdmin && (
+            <div className="form-group">
+              <label htmlFor="edit-name">ชื่ออุปกรณ์</label>
+              <input
+                id="edit-name"
+                type="text"
+                value={editForm.name}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, name: e.target.value })
+                }
+                required
+              />
+            </div>
+          )}
           {isSuperAdmin && (
             <div className="form-group">
               <label htmlFor="edit-date">วันที่รับ</label>
@@ -100,19 +102,21 @@ export default function EditEquipmentModal({
               }
             />
           </div>
-          <div className="form-group">
-            <label htmlFor="edit-price">ราคา</label>
-            <input
-              id="edit-price"
-              type="number"
-              min="0"
-              step="0.01"
-              value={editForm.price}
-              onChange={(e) =>
-                setEditForm({ ...editForm, price: e.target.value })
-              }
-            />
-          </div>
+          {isSuperAdmin && (
+            <div className="form-group">
+              <label htmlFor="edit-price">ราคา</label>
+              <input
+                id="edit-price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={editForm.price}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, price: e.target.value })
+                }
+              />
+            </div>
+          )}
           <button type="submit" className="btn-primary" disabled={isSavingEdit}>
             {isSavingEdit ? "กำลังบันทึก..." : "บันทึกการแก้ไข"}
           </button>

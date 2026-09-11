@@ -652,6 +652,16 @@ body {
   z-index: 1;
 }
 
+/* ตารางใน modal: เลื่อนแนวนอนแทนการบีบคอลัมน์จนหัวตารางแตกเป็นตัวอักษรเดี่ยว (จอมือถือ/แท็บเล็ต) */
+.modal-scroll-table > .data-table {
+  table-layout: auto;
+  min-width: 760px;
+}
+
+.modal-scroll-table > .data-table th {
+  white-space: nowrap;
+}
+
 /* ================= USER MANAGEMENT ================= */
 .user-add-form {
   background: #f8fafc;
@@ -1211,4 +1221,62 @@ body {
 .form-group input[type="file"] {
   width: 100%;
   font-size: 0.9rem;
+}
+
+/* ===== แทงจำหน่าย: ฟอร์มตามเทมเพลต ===== */
+/* ฟอร์มยาวกว่าจอ - ให้ส่วนฟอร์มเลื่อนเองภายใน modal (header/ชื่อครุภัณฑ์ ปักอยู่ด้านบน) */
+.writeoff-form {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.writeoff-field-group {
+  margin-top: 16px;
+}
+.writeoff-field-group h4 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  color: #0f172a;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 4px;
+}
+.writeoff-field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+}
+.writeoff-field-grid .form-group {
+  margin-bottom: 4px;
+}
+.writeoff-field-grid input {
+  width: 100%;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+.writeoff-field-grid input:focus {
+  outline: none;
+  border-color: #0891b2;
+}
+
+/* ตารางย่อยใน ProvHistory (ดูรายการใน batch) */
+.nested-table {
+  margin: 4px 0;
+  background: #f8fafc;
+}
+.nested-table th,
+.nested-table td {
+  padding: 8px 10px;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 640px) {
+  .writeoff-field-grid {
+    grid-template-columns: 1fr;
+  }
 }

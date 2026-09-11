@@ -264,8 +264,8 @@ app.get('/api/equipments', (req, res) => {
   }
 })
 
-// CREATE (ต้อง login - admin ทุกระดับทำได้)
-app.post('/api/equipments', verifyToken, (req, res) => {
+// CREATE (เฉพาะ super_admin ขึ้นไป - admin ทั่วไปเพิ่มครุภัณฑ์ใหม่ไม่ได้)
+app.post('/api/equipments', verifyToken, requireSuperAdmin, (req, res) => {
   const { serial_number, name, received_date, building, room, responsible_person, price, category_id, status } = req.body
 
   if (!serial_number || !name) {
@@ -303,16 +303,16 @@ app.post('/api/equipments', verifyToken, (req, res) => {
 })
 
 // UPDATE ทั่วไป (ต้อง login)
-// Admin ทั่วไป: แก้ได้แค่ ชื่ออุปกรณ์ / สถานที่ (ตึก-ห้อง) / ผู้รับผิดชอบ / ราคา
-// Super Admin ขึ้นไป: แก้ได้ทุกฟิลด์ รวมถึงเลขครุภัณฑ์และวันที่รับ
+// Admin ทั่วไป: แก้ได้แค่ สถานที่ (ตึก-ห้อง) / ผู้รับผิดชอบ
+// Super Admin ขึ้นไป: แก้ได้ทุกฟิลด์ รวมถึงชื่ออุปกรณ์ / ราคา / เลขครุภัณฑ์ / วันที่รับ
 app.patch('/api/equipments/:id', verifyToken, (req, res) => {
-  const BASIC_EDITABLE_FIELDS = ['name', 'building', 'room', 'responsible_person', 'price']
-  const RESTRICTED_EDITABLE_FIELDS = ['serial_number', 'received_date']
+  const BASIC_EDITABLE_FIELDS = ['building', 'room', 'responsible_person']
+  const RESTRICTED_EDITABLE_FIELDS = ['name', 'price', 'serial_number', 'received_date']
   const isSuperAdminUser = ['super_admin', 'super_super_admin'].includes(req.user?.role)
 
   const attemptedRestricted = RESTRICTED_EDITABLE_FIELDS.filter((f) => req.body[f] !== undefined)
   if (!isSuperAdminUser && attemptedRestricted.length > 0) {
-    return res.status(403).json({ success: false, message: 'เฉพาะ Super Admin ขึ้นไปเท่านั้นที่แก้ไขเลขครุภัณฑ์หรือวันที่รับได้' })
+    return res.status(403).json({ success: false, message: 'เฉพาะ Super Admin ขึ้นไปเท่านั้นที่แก้ไขชื่ออุปกรณ์ / ราคา / เลขครุภัณฑ์ / วันที่รับได้' })
   }
 
   const updates = {}
@@ -393,15 +393,50 @@ app.patch('/api/equipments/:id/status', verifyToken, (req, res) => {
   }
 })
 
-// DELETE = แทงจำหน่าย (เฉพาะ super_admin ขึ้นไป) - ย้ายไป archive + ต้องแนบรูปภาพ
+// DELETE = แทงจำหน่าย (เฉพาะ super_admin ขึ้นไป) - ย้ายไป archive + ต้องแนบรูป + กรอกฟิลด์ตามเทมเพลต "ประวัติครุภัณฑ์"
 // รับเป็น multipart/form-data:
-//   - photo (ไฟล์รูป)           -> บังคับ ยกเว้นมี writeoff_note
-//   - writeoff_note (ข้อความ)   -> ใช้แทนรูปกรณีไม่มีรูป (เช่นครุภัณฑ์สูญหาย) หรือแนบคู่กับรูปก็ได้
+//   - photo (ไฟล์รูป)  -> บังคับ ยกเว้นติ๊ก no_photo แล้วกรอก writeoff_note
+//   - ฟิลด์ตามเทมเพลตทั้งหมด (report_no, budget_year, quantity, funding_source, usage_location,
+//     usage_nature, failure_cause, damage_detail, disposal_reason, org_name, certifier_name, certifier_title) -> บังคับทั้งหมด
+const WRITEOFF_REQUIRED_FIELDS = [
+  ['report_no', 'ลำดับที่'],
+  ['budget_year', 'ปี (พ.ศ.)'],
+  ['quantity', 'จำนวน'],
+  ['funding_source', 'ประเภทเงินที่มา'],
+  ['usage_location', 'ใช้งานที่'],
+  ['usage_nature', 'ลักษณะการใช้งาน'],
+  ['failure_cause', 'สาเหตุที่เสีย'],
+  ['damage_detail', 'สภาพชำรุด'],
+  ['disposal_reason', 'เหตุผลที่ขอจำหน่าย'],
+  ['org_name', 'ชื่อหน่วยงาน'],
+  ['certifier_name', 'ชื่อผู้รับรอง'],
+  ['certifier_title', 'ตำแหน่งผู้รับรอง'],
+]
+
 app.delete('/api/equipments/:id', verifyToken, requireSuperAdmin, uploadPhoto.single('photo'), async (req, res) => {
+  const noPhoto = req.body.no_photo === 'true' || req.body.no_photo === '1'
   const writeoffNote = (req.body.writeoff_note || '').trim()
 
-  if (!req.file && !writeoffNote) {
-    return res.status(400).json({ success: false, message: 'กรุณาแนบรูปภาพครุภัณฑ์ หรือระบุเหตุผลกรณีไม่มีรูป' })
+  // รูป: บังคับ เว้นแต่ติ๊ก "ไม่มีรูป" แล้วต้องมีเหตุผล
+  if (!req.file) {
+    if (!noPhoto) {
+      return res.status(400).json({ success: false, message: 'กรุณาแนบรูปภาพครุภัณฑ์ หรือติ๊ก "ไม่มีรูปภาพ" แล้วระบุเหตุผล' })
+    }
+    if (!writeoffNote) {
+      return res.status(400).json({ success: false, message: 'กรุณาระบุเหตุผลที่ไม่มีรูปภาพ' })
+    }
+  }
+
+  // ฟิลด์ตามเทมเพลต: บังคับทั้งหมด
+  const fields = {}
+  const missing = []
+  for (const [key, label] of WRITEOFF_REQUIRED_FIELDS) {
+    const val = (req.body[key] || '').trim()
+    if (!val) missing.push(label)
+    fields[key] = val
+  }
+  if (missing.length > 0) {
+    return res.status(400).json({ success: false, message: `กรุณากรอกให้ครบ: ${missing.join(', ')}` })
   }
 
   try {
@@ -422,9 +457,13 @@ app.delete('/api/equipments/:id', verifyToken, requireSuperAdmin, uploadPhoto.si
 
     const runWriteoff = db.transaction(() => {
       const info = db.prepare(`
-        INSERT INTO deleted_equipments
-          (equipment_id, serial_number, name, received_date, building, room, responsible_person, price, category_id, status, deleted_by, writeoff_note)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO deleted_equipments (
+          equipment_id, serial_number, name, received_date, building, room, responsible_person,
+          price, category_id, status, deleted_by, writeoff_note,
+          report_no, budget_year, quantity, funding_source, usage_location, usage_nature,
+          failure_cause, damage_detail, disposal_reason, org_name, certifier_name, certifier_title
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         existing.equipment_id,
         existing.serial_number,
@@ -437,7 +476,19 @@ app.delete('/api/equipments/:id', verifyToken, requireSuperAdmin, uploadPhoto.si
         existing.category_id,
         existing.status,
         req.user.username,
-        writeoffNote || null
+        writeoffNote || null,
+        fields.report_no,
+        fields.budget_year,
+        fields.quantity,
+        fields.funding_source,
+        fields.usage_location,
+        fields.usage_nature,
+        fields.failure_cause,
+        fields.damage_detail,
+        fields.disposal_reason,
+        fields.org_name,
+        fields.certifier_name,
+        fields.certifier_title
       )
 
       if (compressed) {
@@ -454,7 +505,7 @@ app.delete('/api/equipments/:id', verifyToken, requireSuperAdmin, uploadPhoto.si
       req.user.username,
       'แทงจำหน่ายครุภัณฑ์',
       existing.serial_number,
-      `ชื่อ: ${existing.name}${compressed ? ' (มีรูป)' : ''}${writeoffNote ? ` หมายเหตุ: ${writeoffNote}` : ''}`
+      `ชื่อ: ${existing.name}${compressed ? ' (มีรูป)' : ' (ไม่มีรูป)'}`
     )
 
     res.json({ success: true })
@@ -463,7 +514,7 @@ app.delete('/api/equipments/:id', verifyToken, requireSuperAdmin, uploadPhoto.si
   }
 })
 
-// IMPORT EXCEL (ต้อง login - admin ทุกระดับทำได้) - อ่านสถานะจากคอลัมน์แยกหมวด/คอลัมน์สถานะถ้ามี ไม่งั้น default เป็น 'ใช้ได้'
+// IMPORT EXCEL (เฉพาะ super_admin ขึ้นไป) - อ่านสถานะจากคอลัมน์แยกหมวด/คอลัมน์สถานะถ้ามี ไม่งั้น default เป็น 'ใช้ได้'
 // ถ้าไฟล์มีคอลัมน์สถานะที่ระบบรู้จัก (เช่นไฟล์จากส่วนกลาง) จะอ่านค่ามาแปลงให้ด้วย ไม่งั้นเป็น 'available' เสมอ
 // ชื่อหัวตารางที่ระบบรู้จัก (รองรับหลายชื่อเรียกสำหรับคอลัมน์เดียวกัน รวมถึงไฟล์รายงานสินทรัพย์จากส่วนกลาง)
 const IMPORT_HEADER_ALIASES = {
@@ -526,7 +577,7 @@ const buildColumnMap = (headerRow) => {
   return columnMap
 }
 
-app.post('/api/equipments/import', verifyToken, upload.single('file'), async (req, res) => {
+app.post('/api/equipments/import', verifyToken, requireSuperAdmin, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'กรุณาแนบไฟล์ Excel' })
 
@@ -708,7 +759,8 @@ app.get('/api/logs', verifyToken, requireSuperAdmin, (req, res) => {
 
 // ---------- Deleted Equipments Archive / รายการแทงจำหน่าย (เฉพาะ super_admin) ----------
 
-// รายการแทงจำหน่ายทั้งหมด + สถานะรูปภาพต่อแถว (ไม่ส่ง blob รูปกลับไป - ดึงแยกทีละรูป)
+// รายการแทงจำหน่ายที่ "ยังไม่ได้ export" (export_batch_id IS NULL) + สถานะรูปภาพต่อแถว
+// (รายการที่ export แล้วย้ายไปอยู่ในประวัติการ export - ดูที่ /api/export-batches)
 app.get('/api/deleted-equipments', verifyToken, requireSuperAdmin, (req, res) => {
   try {
     const rows = db.prepare(`
@@ -716,11 +768,10 @@ app.get('/api/deleted-equipments', verifyToken, requireSuperAdmin, (req, res) =>
         d.*,
         p.photo_id,
         CASE WHEN p.image IS NOT NULL THEN 1 ELSE 0 END AS has_photo,
-        p.bytes            AS photo_bytes,
-        p.exported_at      AS photo_exported_at,
         p.purged_at        AS photo_purged_at
       FROM deleted_equipments d
       LEFT JOIN writeoff_photos p ON p.deleted_id = d.deleted_id
+      WHERE d.export_batch_id IS NULL
       ORDER BY d.deleted_id DESC
     `).all()
     res.json({ success: true, data: rows })
@@ -751,88 +802,193 @@ app.get('/api/deleted-equipments/:deletedId/photo', verifyToken, requireSuperAdm
   }
 })
 
-// Export รายการแทงจำหน่ายเป็น .xlsx พร้อมฝังรูปภาพในคอลัมน์ท้าย (ใช้ exceljs)
-// ไฟล์นี้คือ "archive ถาวรของรูปภาพ" - หลัง export แล้วรูปบนเซิร์ฟเวอร์ล้างทิ้งได้
+// ---- helper: สร้าง sheet "ประวัติครุภัณฑ์" 1 แผ่นต่อ 1 รายการ ให้เหมือนเทมเพลตต้นฉบับ ----
+// เทมเพลต: ฟอนต์ TH Sarabun New 16, คอลัมน์ A/B/C กว้าง 26.28/16.86/39, ทุกแถวสูง 24pt,
+// รูปภาพวางคร่อม A2:C10, เส้นตารางบาง ครอบข้อมูลแถว 13-24 และบล็อกลงชื่อแถว 25-29
+const TH_FONT = { name: 'TH Sarabun New', size: 16 }
+const THIN = { style: 'thin' }
+const boxAll = { top: THIN, left: THIN, bottom: THIN, right: THIN }
+
+const sanitizeSheetName = (raw, index, used) => {
+  let name = String(raw || '').replace(/[[\]*?:/\\]/g, '-').trim()
+  name = `${index}. ${name}`.slice(0, 31)
+  let candidate = name
+  let n = 2
+  while (used.has(candidate)) {
+    candidate = `${name.slice(0, 27)} (${n})`
+    n += 1
+  }
+  used.add(candidate)
+  return candidate
+}
+
+const buildHistorySheet = (workbook, ws, item, imageBuf) => {
+  ws.columns = [{ width: 26.28 }, { width: 16.86 }, { width: 39 }]
+  for (let r = 1; r <= 30; r += 1) ws.getRow(r).height = 24
+
+  // ทุกเซลล์ใช้ฟอนต์เดียวกัน (A1:C30)
+  for (let r = 1; r <= 30; r += 1) {
+    for (const col of ['A', 'B', 'C']) ws.getCell(`${col}${r}`).font = TH_FONT
+  }
+
+  // หัวเรื่อง
+  ws.mergeCells('A1:C1')
+  ws.getCell('A1').value = 'ประวัติครุภัณฑ์'
+  ws.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' }
+
+  // รูปภาพ: anchor แบบ oneCell ใช้ค่า EMU ตรงตามเทมเพลตต้นฉบับเป๊ะ
+  // (from: col A + 1067634 EMU, row 2 + 282608 EMU ; ขนาด 3275765 x 2183843 EMU ≈ 344x229px)
+  if (imageBuf) {
+    const imageId = workbook.addImage({ buffer: imageBuf, extension: 'jpeg' })
+    ws.addImage(imageId, {
+      tl: { nativeCol: 0, nativeColOff: 1067634, nativeRow: 1, nativeRowOff: 282608 },
+      ext: { width: 344, height: 229 },
+      editAs: 'oneCell',
+    })
+  } else {
+    ws.getCell('A6').value = '(ไม่มีรูปภาพ)'
+  }
+
+  // แถวข้อมูล: A = label, B:C merged = value  (แถว 13-24 มีเส้นตารางครบทุกด้าน)
+  const labelValueRows = [
+    [13, 'ชื่อหน่วยงาน', item.org_name, 'left'],
+    [14, `รายการครุภัณฑ์ลำดับที่ ${item.report_no || ''}`.trim(), item.name, 'left'],
+    [15, item.budget_year || '', `จำนวน ${item.quantity || ''} เครื่อง`, 'left'],
+    [16, 'หมายเลขครุภัณฑ์', item.serial_number, 'left'],
+    [17, 'ประเภทเงินที่มา', item.funding_source, 'left'],
+    [18, 'ใช้งานที่', item.usage_location, 'left'],
+    [19, 'ลักษณะการใช้งาน', item.usage_nature, 'left'],
+    [20, 'สาเหตุที่เสีย', item.failure_cause, 'left'],
+    [21, 'สภาพชำรุด', item.damage_detail, 'left'],
+    [22, 'เหตุผลที่ขอจำหน่าย', item.disposal_reason, 'left'],
+  ]
+  for (const [r, label, value, valueAlign] of labelValueRows) {
+    ws.mergeCells(`B${r}:C${r}`)
+    ws.getCell(`A${r}`).value = label
+    ws.getCell(`B${r}`).value = value || ''
+    ws.getCell(`A${r}`).alignment = { vertical: 'middle', wrapText: true }
+    ws.getCell(`B${r}`).alignment = { horizontal: valueAlign, vertical: 'middle', wrapText: true }
+  }
+  // เว้นแถว 23-24 ว่างไว้ (อยู่ในกรอบตารางเหมือนเทมเพลต)
+  for (let r = 13; r <= 24; r += 1) {
+    for (const col of ['A', 'B', 'C']) ws.getCell(`${col}${r}`).border = boxAll
+  }
+
+  // บล็อกลงชื่อ แถว 25-29: A:B merged ด้านซ้าย, C ด้านขวา
+  // กรอบนอกรอบ A25:C29 + เส้นแบ่งตั้งระหว่าง B กับ C (ไม่มีเส้นแนวนอนภายใน)
+  const signRows = [
+    [25, 'ลงชื่อ ..........................ผู้รายงาน', 'ขอรับรองว่าข้อความดังกล่าวถูกต้องเป็นจริง'],
+    [26, '', ''],
+    [27, '.................................กรรมการ', 'ลงชื่อ..............................ผู้รับรอง'],
+    [28, '.................................กรรมการ', `(${item.certifier_name || ''})`],
+    [29, '.................................กรรมการ', item.certifier_title || ''],
+  ]
+  for (const [r, left, right] of signRows) {
+    ws.mergeCells(`A${r}:B${r}`)
+    ws.getCell(`A${r}`).value = left
+    ws.getCell(`C${r}`).value = right
+    ws.getCell(`A${r}`).alignment = { horizontal: 'center', vertical: 'middle' }
+    ws.getCell(`C${r}`).alignment = { horizontal: 'center', vertical: 'middle' }
+  }
+  for (let r = 25; r <= 29; r += 1) {
+    const top = r === 25 ? THIN : undefined
+    const bottom = r === 29 ? THIN : undefined
+    ws.getCell(`A${r}`).border = { top, bottom, left: THIN }
+    ws.getCell(`B${r}`).border = { top, bottom, right: THIN } // เส้นแบ่งตั้งก่อนคอลัมน์ C
+    ws.getCell(`C${r}`).border = { top, bottom, left: THIN, right: THIN }
+  }
+
+  ws.pageSetup = {
+    paperSize: 9,
+    orientation: 'portrait',
+    margins: { left: 0.7, right: 0.7, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 },
+  }
+}
+
+// Export รายการแทงจำหน่ายที่ยังไม่ได้ export -> .xlsx (sheet สรุป + 1 sheet ต่อรายการ ตามเทมเพลต)
+// หลัง export: ย้ายรายการเข้า batch (ออกจากรายการที่รอ), ล้าง blob รูป (ไฟล์ Excel เก็บรูปไว้แล้ว)
 app.get('/api/deleted-equipments/export', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
-    const rows = db.prepare('SELECT * FROM deleted_equipments ORDER BY deleted_id DESC').all()
+    const rows = db.prepare('SELECT * FROM deleted_equipments WHERE export_batch_id IS NULL ORDER BY deleted_id ASC').all()
     if (rows.length === 0) {
-      return res.status(400).json({ success: false, message: 'ยังไม่มีรายการแทงจำหน่าย' })
+      return res.status(400).json({ success: false, message: 'ยังไม่มีรายการแทงจำหน่ายที่รอ export' })
     }
 
-    const photos = db.prepare('SELECT deleted_id, photo_id, image, purged_at FROM writeoff_photos').all()
+    const photoRows = db.prepare('SELECT deleted_id, image FROM writeoff_photos WHERE image IS NOT NULL').all()
     const photoByDeletedId = new Map()
-    for (const p of photos) photoByDeletedId.set(p.deleted_id, p)
+    for (const p of photoRows) photoByDeletedId.set(p.deleted_id, p.image)
 
     const workbook = new ExcelJS.Workbook()
-    const ws = workbook.addWorksheet('รายการแทงจำหน่าย')
 
-    ws.columns = [
+    // ---- sheet สรุป ----
+    const summary = workbook.addWorksheet('สรุป')
+    summary.columns = [
       { header: 'ลำดับ', key: 'idx', width: 8 },
       { header: 'เลขครุภัณฑ์', key: 'serial', width: 22 },
-      { header: 'ชื่ออุปกรณ์', key: 'name', width: 32 },
-      { header: 'อาคาร', key: 'building', width: 16 },
-      { header: 'ห้อง', key: 'room', width: 10 },
-      { header: 'ผู้รับผิดชอบ', key: 'person', width: 18 },
-      { header: 'ราคา (บาท)', key: 'price', width: 14 },
-      { header: 'สถานะก่อนแทงจำหน่าย', key: 'status', width: 18 },
+      { header: 'ชื่ออุปกรณ์', key: 'name', width: 34 },
+      { header: 'ลำดับที่', key: 'report_no', width: 12 },
+      { header: 'ปี (พ.ศ.)', key: 'year', width: 10 },
+      { header: 'จำนวน', key: 'qty', width: 8 },
+      { header: 'ใช้งานที่', key: 'loc', width: 18 },
+      { header: 'สาเหตุที่เสีย', key: 'cause', width: 22 },
+      { header: 'เหตุผลที่ขอจำหน่าย', key: 'reason', width: 26 },
       { header: 'แทงจำหน่ายโดย', key: 'by', width: 16 },
       { header: 'วันที่แทงจำหน่าย', key: 'at', width: 20 },
-      { header: 'หมายเหตุ', key: 'note', width: 24 },
-      { header: 'รูปภาพ', key: 'photo', width: 26 },
     ]
-    ws.getRow(1).font = { bold: true }
-
-    const PHOTO_COL_INDEX = 11 // 0-based ของคอลัมน์ "รูปภาพ" (คอลัมน์ที่ 12)
-    const exportedPhotoIds = []
-
+    summary.getRow(1).font = { bold: true }
     rows.forEach((row, i) => {
-      const excelRow = ws.addRow({
+      summary.addRow({
         idx: i + 1,
         serial: row.serial_number || '-',
         name: row.name || '-',
-        building: row.building || '-',
-        room: row.room || '-',
-        person: row.responsible_person || '-',
-        price: row.price ? Number(row.price) : 0,
-        status: row.status || '-',
+        report_no: row.report_no || '-',
+        year: row.budget_year || '-',
+        qty: row.quantity || '-',
+        loc: row.usage_location || '-',
+        cause: row.failure_cause || '-',
+        reason: row.disposal_reason || '-',
         by: row.deleted_by || '-',
         at: row.deleted_at || '-',
-        note: row.writeoff_note || '-',
-        photo: '',
       })
-
-      const p = photoByDeletedId.get(row.deleted_id)
-      if (p && p.image) {
-        const imageId = workbook.addImage({ buffer: p.image, extension: 'jpeg' })
-        excelRow.height = 95
-        ws.addImage(imageId, {
-          tl: { col: PHOTO_COL_INDEX, row: excelRow.number - 1 },
-          ext: { width: 150, height: 115 },
-        })
-        exportedPhotoIds.push(p.photo_id)
-      } else if (p && p.purged_at) {
-        excelRow.getCell('photo').value = `รูปถูกล้างเมื่อ ${p.purged_at}`
-      } else {
-        excelRow.getCell('photo').value = '-'
-      }
     })
 
-    // stamp exported_at ให้รูปทุกรูปที่ใส่ไปในไฟล์นี้ (ใช้เป็นเงื่อนไขว่าล้างได้แล้ว)
-    if (exportedPhotoIds.length > 0) {
-      const now = new Date().toISOString()
-      const stamp = db.prepare('UPDATE writeoff_photos SET exported_at = ? WHERE photo_id = ?')
-      db.transaction((ids) => { for (const id of ids) stamp.run(now, id) })(exportedPhotoIds)
-    }
+    // ---- 1 sheet ต่อ 1 รายการ ----
+    const usedNames = new Set(['สรุป'])
+    rows.forEach((row, i) => {
+      const sheetName = sanitizeSheetName(row.serial_number || row.name, i + 1, usedNames)
+      const ws = workbook.addWorksheet(sheetName)
+      buildHistorySheet(workbook, ws, row, photoByDeletedId.get(row.deleted_id) || null)
+    })
+
+    // ---- บันทึก batch + ย้ายรายการออกจากคิว + ล้าง blob รูป ----
+    const filename = `รายการครุภัณฑ์แทงจำหน่าย_${new Date().toISOString().slice(0, 10)}.xlsx`
+    const now = new Date().toISOString()
+    const deletedIds = rows.map((r) => r.deleted_id)
+
+    const commitBatch = db.transaction(() => {
+      const info = db.prepare(
+        'INSERT INTO export_batches (exported_by, item_count, filename) VALUES (?, ?, ?)'
+      ).run(req.user.username, deletedIds.length, filename)
+      const batchId = info.lastInsertRowid
+
+      const setBatch = db.prepare('UPDATE deleted_equipments SET export_batch_id = ? WHERE deleted_id = ?')
+      const dropPhoto = db.prepare('UPDATE writeoff_photos SET image = NULL, purged_at = ? WHERE deleted_id = ?')
+      for (const id of deletedIds) {
+        setBatch.run(batchId, id)
+        dropPhoto.run(now, id)
+      }
+      return batchId
+    })
+    const batchId = commitBatch()
+    db.exec('VACUUM') // คืนพื้นที่ไฟล์ .db หลังล้าง blob รูป
 
     logActivity(
       req.user.username,
       'Export รายการแทงจำหน่าย',
-      null,
-      `${rows.length} รายการ, ฝังรูป ${exportedPhotoIds.length} รูป`
+      `batch #${batchId}`,
+      `${deletedIds.length} รายการ`
     )
 
-    const filename = `รายการครุภัณฑ์แทงจำหน่าย_${new Date().toISOString().slice(0, 10)}.xlsx`
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`)
     await workbook.xlsx.write(res)
@@ -843,80 +999,58 @@ app.get('/api/deleted-equipments/export', verifyToken, requireSuperAdmin, async 
   }
 })
 
-// ดูจำนวน/ขนาดรูปที่จะถูกล้าง ถ้าล้างรูปที่เก่ากว่า N เดือน (ไม่ลบจริง - ใช้โชว์ก่อนยืนยัน)
-app.get('/api/deleted-equipments/purge-photos/preview', verifyToken, requireSuperAdmin, (req, res) => {
-  const months = Number(req.query.olderThanMonths)
-  if (!Number.isFinite(months) || months < 1) {
-    return res.status(400).json({ success: false, message: 'กรุณาระบุจำนวนเดือน (อย่างน้อย 1)' })
-  }
+// ---------- ประวัติการ export (เฉพาะ super_admin) ----------
 
+// รายการ batch ทั้งหมด + จำนวนรายการในแต่ละ batch
+app.get('/api/export-batches', verifyToken, requireSuperAdmin, (req, res) => {
   try {
-    const cutoff = new Date(Date.now() - months * 30 * 24 * 60 * 60 * 1000).toISOString()
-
-    const eligible = db.prepare(`
-      SELECT COUNT(*) AS cnt, COALESCE(SUM(bytes), 0) AS total_bytes
-      FROM writeoff_photos
-      WHERE image IS NOT NULL AND exported_at IS NOT NULL AND created_at < ?
-    `).get(cutoff)
-
-    // รูปที่เก่าพอแต่ "ยังไม่ได้ export" - จะไม่ถูกล้าง เตือนให้ export ก่อน
-    const notExported = db.prepare(`
-      SELECT COUNT(*) AS cnt
-      FROM writeoff_photos
-      WHERE image IS NOT NULL AND exported_at IS NULL AND created_at < ?
-    `).get(cutoff)
-
-    res.json({
-      success: true,
-      eligibleCount: eligible.cnt,
-      eligibleBytes: eligible.total_bytes,
-      skippedNotExportedCount: notExported.cnt,
-    })
+    const rows = db.prepare(`
+      SELECT b.*, (SELECT COUNT(*) FROM deleted_equipments d WHERE d.export_batch_id = b.batch_id) AS actual_count
+      FROM export_batches b
+      ORDER BY b.batch_id DESC
+    `).all()
+    res.json({ success: true, data: rows })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
   }
 })
 
-// ล้าง blob รูปภาพที่ export แล้ว + เก่ากว่า N เดือน (record ตัวอักษรใน deleted_equipments ไม่แตะ)
-app.post('/api/deleted-equipments/purge-photos', verifyToken, requireSuperAdmin, (req, res) => {
-  const months = Number(req.body.olderThanMonths)
-  if (!Number.isFinite(months) || months < 1) {
-    return res.status(400).json({ success: false, message: 'กรุณาระบุจำนวนเดือน (อย่างน้อย 1)' })
-  }
-
+// รายการครุภัณฑ์ใน batch หนึ่ง
+app.get('/api/export-batches/:batchId/items', verifyToken, requireSuperAdmin, (req, res) => {
   try {
-    const cutoff = new Date(Date.now() - months * 30 * 24 * 60 * 60 * 1000).toISOString()
+    const rows = db.prepare(
+      'SELECT * FROM deleted_equipments WHERE export_batch_id = ? ORDER BY deleted_id ASC'
+    ).all(req.params.batchId)
+    res.json({ success: true, data: rows })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
 
-    const targets = db.prepare(`
-      SELECT photo_id, bytes FROM writeoff_photos
-      WHERE image IS NOT NULL AND exported_at IS NOT NULL AND created_at < ?
-    `).all(cutoff)
-
-    if (targets.length === 0) {
-      return res.json({
-        success: true,
-        purgedCount: 0,
-        freedBytes: 0,
-        message: 'ไม่มีรูปภาพที่เข้าเงื่อนไข (ต้อง export แล้ว และเก่ากว่าที่กำหนด)',
-      })
+// ลบประวัติ export 1 batch (ลบ record ครุภัณฑ์ใน batch นั้นด้วย - CASCADE ลบรูปที่เหลือ)
+// ไฟล์ Excel ที่ดาวน์โหลดไปแล้วคือ archive ถาวร การลบตรงนี้ = ลบข้อมูลในระบบเท่านั้น
+app.delete('/api/export-batches/:batchId', verifyToken, requireSuperAdmin, (req, res) => {
+  try {
+    const batch = db.prepare('SELECT * FROM export_batches WHERE batch_id = ?').get(req.params.batchId)
+    if (!batch) {
+      return res.status(404).json({ success: false, message: 'ไม่พบประวัติการ export นี้' })
     }
 
-    const freedBytes = targets.reduce((sum, t) => sum + (t.bytes || 0), 0)
-    const now = new Date().toISOString()
-    const purge = db.prepare('UPDATE writeoff_photos SET image = NULL, purged_at = ? WHERE photo_id = ?')
-    db.transaction((ids) => { for (const id of ids) purge.run(now, id) })(targets.map((t) => t.photo_id))
-
-    // คืนพื้นที่ในไฟล์ .db จริง (ไม่งั้นไฟล์ไม่เล็กลงแม้ลบ blob แล้ว)
+    const removeBatch = db.transaction(() => {
+      db.prepare('DELETE FROM deleted_equipments WHERE export_batch_id = ?').run(req.params.batchId)
+      db.prepare('DELETE FROM export_batches WHERE batch_id = ?').run(req.params.batchId)
+    })
+    removeBatch()
     db.exec('VACUUM')
 
     logActivity(
       req.user.username,
-      'ล้างรูปภาพแทงจำหน่าย',
-      null,
-      `ล้าง ${targets.length} รูป (~${(freedBytes / 1024 / 1024).toFixed(1)} MB), เก่ากว่า ${months} เดือน`
+      'ลบประวัติการ export',
+      `batch #${batch.batch_id}`,
+      `${batch.filename || ''} (${batch.item_count} รายการ)`
     )
 
-    res.json({ success: true, purgedCount: targets.length, freedBytes })
+    res.json({ success: true })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
   }
