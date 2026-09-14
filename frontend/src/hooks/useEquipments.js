@@ -45,6 +45,8 @@ export function useEquipments({
   });
   const [editError, setEditError] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  // ชื่อ "จริง" ตาม rawdata ของรายการที่กำลังแก้ไข (แสดงเป็น hint เฉยๆ ไม่ใช่ฟิลด์ที่แก้ไขได้จากหน้านี้)
+  const [editingRawName, setEditingRawName] = useState("");
 
   // ---------- Write-off (แทงจำหน่าย) modal ----------
   // หมายเหตุ: state ของฟอร์ม (12 ช่อง + รูป + note) อยู่ใน WriteoffModal เอง
@@ -215,6 +217,7 @@ export function useEquipments({
 
   const openEditModal = (item) => {
     setEditingId(item.equipment_id);
+    setEditingRawName(item.raw_name || item.name || "");
     setEditForm({
       serial_number: item.serial_number || "",
       name: item.name || "",
@@ -231,6 +234,7 @@ export function useEquipments({
   const closeEditModal = () => {
     setShowEditModal(false);
     setEditingId(null);
+    setEditingRawName("");
     setEditError("");
   };
 
@@ -238,8 +242,8 @@ export function useEquipments({
     e.preventDefault();
     setEditError("");
 
-    // Admin ทั่วไปแก้ได้แค่ สถานที่ / ผู้รับผิดชอบ - ชื่อ/ราคา/เลขครุภัณฑ์/วันที่รับ เฉพาะ Super Admin ขึ้นไป
-    if (isSuperAdmin && !editForm.name.trim()) {
+    // ชื่ออุปกรณ์ (ชื่อที่โชว์บนเว็บ) แก้ได้ทุกระดับ - ราคา/เลขครุภัณฑ์/วันที่รับ เฉพาะ Super Admin ขึ้นไป
+    if (!editForm.name.trim()) {
       setEditError("กรุณากรอกชื่ออุปกรณ์");
       return;
     }
@@ -250,12 +254,12 @@ export function useEquipments({
 
     setIsSavingEdit(true);
     const payload = {
+      name: editForm.name,
       building: editForm.building || null,
       room: editForm.room || null,
       responsible_person: editForm.responsible_person || null,
     };
     if (isSuperAdmin) {
-      payload.name = editForm.name;
       payload.price = editForm.price ? parseFloat(editForm.price) : null;
       payload.serial_number = editForm.serial_number;
       payload.received_date = editForm.received_date || null;
@@ -403,6 +407,96 @@ export function useEquipments({
     );
   };
 
+  // ---------- รูปภาพอ้างอิงของครุภัณฑ์ (แยกขาดจากรูปตอนแทงจำหน่าย ไม่ถูกใช้ที่อื่นเลย) ----------
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [photoItem, setPhotoItem] = useState(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
+  const [isLoadingPhoto, setIsLoadingPhoto] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState("");
+
+  const fetchItemPhoto = async (equipmentId) => {
+    setIsLoadingPhoto(true);
+    try {
+      const res = await authFetch(`/equipments/${equipmentId}/photo`);
+      if (await handleAuthError(res)) return;
+      if (!res.ok) {
+        setPhotoPreviewUrl("");
+        return;
+      }
+      const blob = await res.blob();
+      setPhotoPreviewUrl(URL.createObjectURL(blob));
+    } catch {
+      setPhotoError("เกิดข้อผิดพลาดในการโหลดรูปภาพ");
+    } finally {
+      setIsLoadingPhoto(false);
+    }
+  };
+
+  const openPhotoModal = (item) => {
+    setPhotoItem(item);
+    setPhotoError("");
+    setPhotoPreviewUrl("");
+    setShowPhotoModal(true);
+    if (item.has_ref_photo) fetchItemPhoto(item.equipment_id);
+  };
+
+  const closePhotoModal = () => {
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    setShowPhotoModal(false);
+    setPhotoItem(null);
+    setPhotoPreviewUrl("");
+    setPhotoError("");
+  };
+
+  const uploadItemPhoto = async (file) => {
+    if (!photoItem) return;
+    setPhotoError("");
+    setIsUploadingPhoto(true);
+    const formData = new FormData();
+    formData.append("photo", file);
+    try {
+      const res = await authFetch(`/equipments/${photoItem.equipment_id}/photo`, {
+        method: "POST",
+        body: formData,
+      });
+      if (await handleAuthError(res)) return;
+      const data = await res.json();
+      if (res.ok && data.success) {
+        fetchEquipments(); // อัปเดต has_ref_photo ในตารางหลัก
+        fetchItemPhoto(photoItem.equipment_id); // โหลดรูปใหม่มาโชว์ใน modal ทันที
+      } else {
+        setPhotoError(data.message || "อัปโหลดไม่สำเร็จ");
+      }
+    } catch {
+      setPhotoError("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const deleteItemPhoto = async () => {
+    if (!photoItem) return;
+    if (!window.confirm("ลบรูปภาพนี้?")) return;
+    setPhotoError("");
+    try {
+      const res = await authFetch(`/equipments/${photoItem.equipment_id}/photo`, {
+        method: "DELETE",
+      });
+      if (await handleAuthError(res)) return;
+      const data = await res.json();
+      if (data.success) {
+        if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+        setPhotoPreviewUrl("");
+        fetchEquipments();
+      } else {
+        setPhotoError(data.message || "ลบไม่สำเร็จ");
+      }
+    } catch {
+      setPhotoError("เกิดข้อผิดพลาดในการเชื่อมต่อ Server");
+    }
+  };
+
   return {
     equipments,
     searchTerm,
@@ -415,6 +509,7 @@ export function useEquipments({
     isImporting,
     showEditModal,
     editingId,
+    editingRawName,
     editForm,
     setEditForm,
     editError,
@@ -439,5 +534,16 @@ export function useEquipments({
     openWriteoffModal,
     closeWriteoffModal,
     submitWriteoff,
+    // ---------- รูปภาพอ้างอิงของครุภัณฑ์ ----------
+    showPhotoModal,
+    photoItem,
+    photoPreviewUrl,
+    isLoadingPhoto,
+    isUploadingPhoto,
+    photoError,
+    openPhotoModal,
+    closePhotoModal,
+    uploadItemPhoto,
+    deleteItemPhoto,
   };
 }

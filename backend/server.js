@@ -252,8 +252,14 @@ app.get('/api/equipments', (req, res) => {
       }
     }
 
+    // has_ref_photo: มีรูปอ้างอิง (คนละเรื่องกับรูปตอนแทงจำหน่าย) ไหม - ใช้ตัดสินใจว่าต้องโหลดรูปมาโชว์เลยไหมตอนเปิด modal
     const rows = isAuthed
-      ? db.prepare('SELECT * FROM equipments ORDER BY equipment_id DESC').all()
+      ? db.prepare(`
+          SELECT e.*, CASE WHEN p.equipment_id IS NOT NULL THEN 1 ELSE 0 END AS has_ref_photo
+          FROM equipments e
+          LEFT JOIN equipment_photos p ON p.equipment_id = e.equipment_id
+          ORDER BY e.equipment_id DESC
+        `).all()
       : db.prepare(
           'SELECT equipment_id, name, building, room, responsible_person FROM equipments ORDER BY equipment_id DESC'
         ).all()
@@ -276,12 +282,13 @@ app.post('/api/equipments', verifyToken, requireSuperAdmin, (req, res) => {
 
   try {
     const stmt = db.prepare(`
-      INSERT INTO equipments (serial_number, name, received_date, building, room, responsible_person, price, category_id, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO equipments (serial_number, name, raw_name, received_date, building, room, responsible_person, price, category_id, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     const info = stmt.run(
       serial_number,
       name,
+      name, // raw_name: ตอนสร้างเองไม่มีไฟล์ rawdata อ้างอิง ใช้ชื่อเดียวกับ name เป็นค่าเริ่มต้น
       received_date || null,
       building || null,
       room || null,
@@ -303,16 +310,18 @@ app.post('/api/equipments', verifyToken, requireSuperAdmin, (req, res) => {
 })
 
 // UPDATE ทั่วไป (ต้อง login)
-// Admin ทั่วไป: แก้ได้แค่ สถานที่ (ตึก-ห้อง) / ผู้รับผิดชอบ
-// Super Admin ขึ้นไป: แก้ได้ทุกฟิลด์ รวมถึงชื่ออุปกรณ์ / ราคา / เลขครุภัณฑ์ / วันที่รับ
+// Admin ทั่วไป: แก้ได้ ชื่ออุปกรณ์ (ชื่อที่โชว์บนเว็บ - ไม่กระทบ raw_name) / สถานที่ (ตึก-ห้อง) / ผู้รับผิดชอบ
+// Super Admin ขึ้นไป: แก้ได้ทุกฟิลด์ รวมถึงราคา / เลขครุภัณฑ์ / วันที่รับ
+// หมายเหตุ: endpoint นี้แก้ได้แค่ name (ชื่อที่โชว์) เท่านั้น - raw_name (ชื่อจริงตาม rawdata ที่ใช้ตอนแทงจำหน่าย)
+// ตั้งได้แค่ตอนสร้าง/นำเข้าเท่านั้น กันไม่ให้ชื่อในรายงานทางการเพี้ยนไปตามการแก้ไขหน้าเว็บ
 app.patch('/api/equipments/:id', verifyToken, (req, res) => {
-  const BASIC_EDITABLE_FIELDS = ['building', 'room', 'responsible_person']
-  const RESTRICTED_EDITABLE_FIELDS = ['name', 'price', 'serial_number', 'received_date']
+  const BASIC_EDITABLE_FIELDS = ['name', 'building', 'room', 'responsible_person']
+  const RESTRICTED_EDITABLE_FIELDS = ['price', 'serial_number', 'received_date']
   const isSuperAdminUser = ['super_admin', 'super_super_admin'].includes(req.user?.role)
 
   const attemptedRestricted = RESTRICTED_EDITABLE_FIELDS.filter((f) => req.body[f] !== undefined)
   if (!isSuperAdminUser && attemptedRestricted.length > 0) {
-    return res.status(403).json({ success: false, message: 'เฉพาะ Super Admin ขึ้นไปเท่านั้นที่แก้ไขชื่ออุปกรณ์ / ราคา / เลขครุภัณฑ์ / วันที่รับได้' })
+    return res.status(403).json({ success: false, message: 'เฉพาะ Super Admin ขึ้นไปเท่านั้นที่แก้ไขราคา / เลขครุภัณฑ์ / วันที่รับได้' })
   }
 
   const updates = {}
@@ -386,6 +395,79 @@ app.patch('/api/equipments/:id/status', verifyToken, (req, res) => {
       existing.serial_number,
       `${existing.status} → ${status}`
     )
+
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ---------- รูปภาพอ้างอิงของครุภัณฑ์ (ต้อง login - admin ทุกระดับทำได้) ----------
+// คนละเรื่องกับรูปตอนแทงจำหน่ายโดยสิ้นเชิง - แค่ไว้ดูหน้าตาครุภัณฑ์ ไม่ถูกใช้ที่อื่นเลย
+// เก็บได้ทีละ 1 รูปต่อรายการ (upload ใหม่ = แทนที่รูปเดิม) กันพื้นที่ในเซิร์ฟเวอร์บาน
+
+// อัปโหลด/แทนที่รูป
+app.post('/api/equipments/:id/photo', verifyToken, uploadPhoto.single('photo'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'กรุณาแนบรูปภาพ' })
+  }
+
+  try {
+    const existing = db.prepare('SELECT equipment_id, serial_number FROM equipments WHERE equipment_id = ?').get(req.params.id)
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'ไม่พบรายการครุภัณฑ์' })
+    }
+
+    let compressed
+    try {
+      compressed = await compressPhoto(req.file.buffer)
+    } catch (err) {
+      return res.status(400).json({ success: false, message: 'ไฟล์รูปภาพไม่ถูกต้องหรือเสียหาย' })
+    }
+
+    db.prepare(`
+      INSERT INTO equipment_photos (equipment_id, image, bytes, uploaded_by)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(equipment_id) DO UPDATE SET
+        image = excluded.image,
+        bytes = excluded.bytes,
+        uploaded_by = excluded.uploaded_by,
+        uploaded_at = CURRENT_TIMESTAMP
+    `).run(req.params.id, compressed, compressed.length, req.user.username)
+
+    logActivity(req.user.username, 'อัปโหลดรูปภาพครุภัณฑ์', existing.serial_number, null)
+
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ดึงรูป (ส่งเป็น JPEG ดิบ)
+app.get('/api/equipments/:id/photo', verifyToken, (req, res) => {
+  try {
+    const row = db.prepare('SELECT image FROM equipment_photos WHERE equipment_id = ?').get(req.params.id)
+    if (!row) {
+      return res.status(404).json({ success: false, message: 'ไม่พบรูปภาพของรายการนี้' })
+    }
+    res.set('Content-Type', 'image/jpeg')
+    res.set('Cache-Control', 'private, max-age=3600')
+    res.send(row.image)
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ลบรูป
+app.delete('/api/equipments/:id/photo', verifyToken, (req, res) => {
+  try {
+    const existing = db.prepare('SELECT equipment_id, serial_number FROM equipments WHERE equipment_id = ?').get(req.params.id)
+    const info = db.prepare('DELETE FROM equipment_photos WHERE equipment_id = ?').run(req.params.id)
+    if (info.changes === 0) {
+      return res.status(404).json({ success: false, message: 'ไม่พบรูปภาพของรายการนี้' })
+    }
+
+    logActivity(req.user.username, 'ลบรูปภาพครุภัณฑ์', existing?.serial_number || req.params.id, null)
 
     res.json({ success: true })
   } catch (err) {
@@ -467,7 +549,7 @@ app.delete('/api/equipments/:id', verifyToken, requireSuperAdmin, uploadPhoto.si
       `).run(
         existing.equipment_id,
         existing.serial_number,
-        existing.name,
+        existing.raw_name || existing.name, // ใช้ชื่อ "จริง" ตาม rawdata เสมอ ไม่ใช่ชื่อที่โชว์บนเว็บ (อาจถูกแก้ไปแล้ว)
         existing.received_date,
         existing.building,
         existing.room,
@@ -505,7 +587,7 @@ app.delete('/api/equipments/:id', verifyToken, requireSuperAdmin, uploadPhoto.si
       req.user.username,
       'แทงจำหน่ายครุภัณฑ์',
       existing.serial_number,
-      `ชื่อ: ${existing.name}${compressed ? ' (มีรูป)' : ' (ไม่มีรูป)'}`
+      `ชื่อ: ${existing.raw_name || existing.name}${compressed ? ' (มีรูป)' : ' (ไม่มีรูป)'}`
     )
 
     res.json({ success: true })
@@ -673,11 +755,14 @@ app.post('/api/equipments/import', verifyToken, requireSuperAdmin, upload.single
       return res.status(400).json({ success: false, message: 'ไม่พบรายการข้อมูลในไฟล์ Excel' })
     }
 
-    const findExistingStmt = db.prepare('SELECT equipment_id, serial_number, status FROM equipments WHERE serial_number = ?')
+    const findExistingStmt = db.prepare('SELECT equipment_id, serial_number, status, raw_name FROM equipments WHERE serial_number = ?')
     const updateStatusStmt = db.prepare('UPDATE equipments SET status = ? WHERE equipment_id = ?')
+    // raw_name = ชื่อ "จริง" ตามไฟล์ rawdata - ซิงค์ทุกครั้งที่ import แม้เป็นรายการซ้ำ (เพื่อให้ตรงไฟล์ล่าสุดเสมอ)
+    // ต่างจาก name (ชื่อที่โชว์บนเว็บ) ซึ่งไม่แตะถ้าเป็นรายการซ้ำ กันการแก้ไขที่ admin ตั้งชื่อเองไว้หาย
+    const updateRawNameStmt = db.prepare('UPDATE equipments SET raw_name = ? WHERE equipment_id = ?')
     const insertStmt = db.prepare(`
-      INSERT INTO equipments (serial_number, name, received_date, building, room, responsible_person, price, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO equipments (serial_number, name, raw_name, received_date, building, room, responsible_person, price, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     // ห่อทั้งก้อนใน transaction เดียว: เร็วขึ้นมาก (หลักพันแถวจาก insert ทีละครั้ง -> commit ครั้งเดียว)
@@ -686,20 +771,27 @@ app.post('/api/equipments/import', verifyToken, requireSuperAdmin, upload.single
     const runImport = db.transaction((rows) => {
       let imported = 0
       let statusUpdated = 0
+      let rawNameSynced = 0
       let skipped = 0
 
       for (const item of rows) {
         const existing = findExistingStmt.get(item.serial_number)
 
         if (existing) {
-          // เลขครุภัณฑ์ซ้ำ (มีอยู่แล้วในระบบ) - ไม่แตะข้อมูลอื่นเลย (ชื่อ/ราคา/อาคาร ฯลฯ คงเดิม)
-          // เช็คแค่ "สถานะ" อย่างเดียวว่าค่าจากไฟล์ต่างจากที่มีอยู่ไหม ถ้าต่างถึงจะอัปเดต
+          // เลขครุภัณฑ์ซ้ำ (มีอยู่แล้วในระบบ) - ไม่แตะ name/ราคา/อาคาร ฯลฯ (คงชื่อที่โชว์ตามที่ admin ตั้งไว้)
+          // เช็คแค่ "สถานะ" กับ "raw_name" ว่าต่างจากไฟล์ไหม ถ้าต่างถึงจะอัปเดตเฉพาะ 2 ค่านี้
+          let changed = false
           if (existing.status !== item.status) {
             updateStatusStmt.run(item.status, existing.equipment_id)
             statusUpdated++
-          } else {
-            skipped++
+            changed = true
           }
+          if (existing.raw_name !== item.name) {
+            updateRawNameStmt.run(item.name, existing.equipment_id)
+            rawNameSynced++
+            changed = true
+          }
+          if (!changed) skipped++
           continue
         }
 
@@ -707,6 +799,7 @@ app.post('/api/equipments/import', verifyToken, requireSuperAdmin, upload.single
           insertStmt.run(
             item.serial_number,
             item.name,
+            item.name, // raw_name: รายการใหม่ - ชื่อที่โชว์กับชื่อจริงเริ่มต้นเหมือนกัน
             item.received_date,
             item.building,
             item.room,
@@ -721,15 +814,20 @@ app.post('/api/equipments/import', verifyToken, requireSuperAdmin, upload.single
         }
       }
 
-      return { imported, statusUpdated, skipped }
+      return { imported, statusUpdated, rawNameSynced, skipped }
     })
 
-    const { imported: importedCount, statusUpdated: statusUpdatedCount, skipped: skippedCount } =
-      runImport(rowsToInsert)
+    const {
+      imported: importedCount,
+      statusUpdated: statusUpdatedCount,
+      rawNameSynced: rawNameSyncedCount,
+      skipped: skippedCount,
+    } = runImport(rowsToInsert)
 
     const messageParts = []
     if (importedCount > 0) messageParts.push(`เพิ่มใหม่ ${importedCount} รายการ`)
     if (statusUpdatedCount > 0) messageParts.push(`อัปเดตสถานะ ${statusUpdatedCount} รายการ`)
+    if (rawNameSyncedCount > 0) messageParts.push(`ซิงค์ชื่อจริง ${rawNameSyncedCount} รายการ`)
     if (skippedCount > 0) messageParts.push(`ข้าม ${skippedCount} รายการ (ข้อมูลซ้ำ ไม่มีอะไรเปลี่ยน)`)
     const message = messageParts.length > 0 ? messageParts.join(', ') : 'ไม่มีการเปลี่ยนแปลง'
 
@@ -737,7 +835,7 @@ app.post('/api/equipments/import', verifyToken, requireSuperAdmin, upload.single
       req.user.username,
       'นำเข้า Excel',
       null,
-      `เพิ่มใหม่ ${importedCount} รายการ, อัปเดตสถานะ ${statusUpdatedCount} รายการ, ข้าม ${skippedCount} รายการ`
+      `เพิ่มใหม่ ${importedCount} รายการ, อัปเดตสถานะ ${statusUpdatedCount} รายการ, ซิงค์ชื่อจริง ${rawNameSyncedCount} รายการ, ข้าม ${skippedCount} รายการ`
     )
 
     res.json({ success: true, message })
@@ -807,7 +905,45 @@ app.get('/api/deleted-equipments/:deletedId/photo', verifyToken, requireSuperAdm
 // รูปภาพวางคร่อม A2:C10, เส้นตารางบาง ครอบข้อมูลแถว 13-24 และบล็อกลงชื่อแถว 25-29
 const TH_FONT = { name: 'TH Sarabun New', size: 16 }
 const THIN = { style: 'thin' }
-const boxAll = { top: THIN, left: THIN, bottom: THIN, right: THIN }
+
+// เส้นขอบแต่ละแบบที่เทมเพลตต้นฉบับใช้ (ถอดมาจาก styles.xml ของไฟล์ตัวอย่างจริง)
+// หมายเหตุ: บางแถว (โดยเฉพาะคอลัมน์ A ระหว่างแถว 14/15) เทมเพลตต้นฉบับ "ไม่มีเส้นคั่น" ตรงนั้นจริงๆ
+// (ไม่ใช่พลาด) - คงไว้ตามต้นฉบับเป๊ะแทนที่จะใช้กรอบเต็มทุกแถวแบบเดา
+//
+// ข้อจำกัดของ exceljs: เซลล์ที่ merge กัน (เช่น B:C หรือ A:B) ไม่สามารถตั้ง border
+// ให้แต่ละเซลล์ต่างกันได้จริง (เขียนทับกันเป็นค่าเดียวกันเสมอ ค่าสุดท้ายที่ตั้งจะ "ชนะ" ทั้งคู่)
+// เลยต้องคำนวณ "เส้นขอบรวมที่มองเห็นจริงของทั้งบล็อกที่ merge" แล้วตั้งให้ทุกเซลล์ในบล็อกเท่ากัน
+// ส่วนคอลัมน์ที่ไม่ได้ merge กับใคร (A ของแถว 13-24, C ของแถว 25-29) ตั้งค่าจริงตามเทมเพลตได้ตรงๆ
+const BORDER = {
+  full: { top: THIN, left: THIN, bottom: THIN, right: THIN }, // L R T B
+  lrt: { left: THIN, right: THIN, top: THIN }, // L R T (ไม่มีล่าง)
+  lr: { left: THIN, right: THIN }, // L R เฉยๆ
+  lrb: { left: THIN, right: THIN, bottom: THIN }, // L R B (ไม่มีบน)
+  lt: { left: THIN, top: THIN }, // L T
+  l: { left: THIN }, // ซ้ายอย่างเดียว
+  lb: { left: THIN, bottom: THIN }, // L B
+}
+
+// แถว 13-24: A เป็นเซลล์เดี่ยว (ไม่ merge) - ใช้ค่าตามเทมเพลตตรงๆ
+// B:C merge กันเสมอ - ไม่ว่า B/C จะถูกกำหนดต่างกันแค่ไหนในเทมเพลต ผลรวมที่เห็นจริงคือกรอบเต็มทุกแถว
+const ROW_A_BORDER = {
+  13: BORDER.lrt,
+  14: BORDER.lrt, // ไม่มีเส้นล่าง -> ไม่มีเส้นคั่นกับแถว 15 (ตรงตามเทมเพลตต้นฉบับ)
+  15: BORDER.lrb, // ไม่มีเส้นบน -> รับช่วงจากการไม่มีเส้นล่างของแถว 14
+  16: BORDER.lrb,
+  17: BORDER.full,
+  18: BORDER.full,
+  19: BORDER.full,
+  20: BORDER.full,
+  21: BORDER.full,
+  22: BORDER.full,
+  23: BORDER.full,
+  24: BORDER.full,
+}
+
+// แถว 25-29: A:B merge กัน (ใช้ค่าเดียวกันทั้งคู่ = เส้นขอบรวมของบล็อกซ้าย), C เป็นเซลล์เดี่ยว
+const AB_BORDER = { 25: BORDER.lt, 26: BORDER.lt, 27: BORDER.l, 28: BORDER.l, 29: BORDER.lb }
+const SIGN_C_BORDER = { 25: BORDER.lrt, 26: BORDER.lr, 27: BORDER.lr, 28: BORDER.lr, 29: BORDER.lrb }
 
 const sanitizeSheetName = (raw, index, used) => {
   let name = String(raw || '').replace(/[[\]*?:/\\]/g, '-').trim()
@@ -869,13 +1005,15 @@ const buildHistorySheet = (workbook, ws, item, imageBuf) => {
     ws.getCell(`A${r}`).alignment = { vertical: 'middle', wrapText: true }
     ws.getCell(`B${r}`).alignment = { horizontal: valueAlign, vertical: 'middle', wrapText: true }
   }
-  // เว้นแถว 23-24 ว่างไว้ (อยู่ในกรอบตารางเหมือนเทมเพลต)
+  // แถว 13-24: A ตั้งตามเทมเพลตตรงๆ (รวมช่องว่างที่ตั้งใจไม่มีเส้นคั่นระหว่าง 14/15)
+  // B:C merge กัน - ตั้งเป็นกรอบเต็มเท่ากันทั้งคู่ (ผลรวมที่เห็นจริงในเทมเพลตต้นฉบับคือกรอบเต็มทุกแถวอยู่แล้ว)
   for (let r = 13; r <= 24; r += 1) {
-    for (const col of ['A', 'B', 'C']) ws.getCell(`${col}${r}`).border = boxAll
+    ws.getCell(`A${r}`).border = ROW_A_BORDER[r]
+    ws.getCell(`B${r}`).border = BORDER.full
+    ws.getCell(`C${r}`).border = BORDER.full
   }
 
   // บล็อกลงชื่อ แถว 25-29: A:B merged ด้านซ้าย, C ด้านขวา
-  // กรอบนอกรอบ A25:C29 + เส้นแบ่งตั้งระหว่าง B กับ C (ไม่มีเส้นแนวนอนภายใน)
   const signRows = [
     [25, 'ลงชื่อ ..........................ผู้รายงาน', 'ขอรับรองว่าข้อความดังกล่าวถูกต้องเป็นจริง'],
     [26, '', ''],
@@ -890,12 +1028,11 @@ const buildHistorySheet = (workbook, ws, item, imageBuf) => {
     ws.getCell(`A${r}`).alignment = { horizontal: 'center', vertical: 'middle' }
     ws.getCell(`C${r}`).alignment = { horizontal: 'center', vertical: 'middle' }
   }
+  // A:B merge กัน - ตั้งเท่ากันทั้งคู่ตามเส้นขอบรวมที่ควรเห็น, C เป็นเซลล์เดี่ยวตั้งตามเทมเพลตตรงๆ
   for (let r = 25; r <= 29; r += 1) {
-    const top = r === 25 ? THIN : undefined
-    const bottom = r === 29 ? THIN : undefined
-    ws.getCell(`A${r}`).border = { top, bottom, left: THIN }
-    ws.getCell(`B${r}`).border = { top, bottom, right: THIN } // เส้นแบ่งตั้งก่อนคอลัมน์ C
-    ws.getCell(`C${r}`).border = { top, bottom, left: THIN, right: THIN }
+    ws.getCell(`A${r}`).border = AB_BORDER[r]
+    ws.getCell(`B${r}`).border = AB_BORDER[r]
+    ws.getCell(`C${r}`).border = SIGN_C_BORDER[r]
   }
 
   ws.pageSetup = {

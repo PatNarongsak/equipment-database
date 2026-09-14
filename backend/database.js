@@ -33,6 +33,17 @@ db.exec(`
     FOREIGN KEY (category_id) REFERENCES categories(category_id)
   );
 
+  -- รูปภาพอ้างอิงของครุภัณฑ์ (ไว้ดูหน้าตาเฉยๆ) - คนละเรื่องกับรูปตอนแทงจำหน่ายโดยสิ้นเชิง
+  -- เก็บได้แค่ 1 รูปต่อ 1 รายการ (equipment_id UNIQUE) - อัปโหลดใหม่ = แทนที่รูปเดิม กันพื้นที่บาน
+  CREATE TABLE IF NOT EXISTS equipment_photos (
+    photo_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    equipment_id INTEGER NOT NULL UNIQUE REFERENCES equipments(equipment_id) ON DELETE CASCADE,
+    image BLOB NOT NULL,
+    bytes INTEGER,
+    uploaded_by TEXT,
+    uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+
   -- เก็บประวัติการทำรายการของ admin แต่ละคน (เพิ่ม/ลบ/เปลี่ยนสถานะ/นำเข้า)
   CREATE TABLE IF NOT EXISTS activity_logs (
     log_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,6 +119,16 @@ for (const [name, type] of WRITEOFF_EXTRA_COLUMNS) {
   if (!deletedCols.some((c) => c.name === name)) {
     db.exec(`ALTER TABLE deleted_equipments ADD COLUMN ${name} ${type}`);
   }
+}
+
+// migration: เพิ่มคอลัมน์ raw_name ให้ equipments (ไฟล์ DB เก่ายังไม่มี)
+// raw_name = ชื่อ "จริง" ตามไฟล์ rawdata ตอนนำเข้า/สร้างรายการ - ใช้เฉพาะตอนแทงจำหน่าย
+// เพื่อให้รายงาน "ประวัติครุภัณฑ์" ตรงกับไฟล์ต้นทางเสมอ ไม่ว่า name (ชื่อที่โชว์บนเว็บ) จะถูกแก้ไปกี่ครั้งก็ตาม
+const equipmentCols = db.prepare('PRAGMA table_info(equipments)').all();
+if (!equipmentCols.some((c) => c.name === 'raw_name')) {
+  db.exec('ALTER TABLE equipments ADD COLUMN raw_name TEXT');
+  // backfill รายการเดิม: ใช้ name ปัจจุบันเป็นค่าเริ่มต้น (ดีที่สุดเท่าที่มี เพราะไม่เคยแยกเก็บมาก่อน)
+  db.exec('UPDATE equipments SET raw_name = name WHERE raw_name IS NULL');
 }
 
 // สร้าง Admin เริ่มต้นถ้ายังไม่มีในระบบ (Username: admin / Password: adminpassword)

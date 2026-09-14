@@ -15,8 +15,10 @@ body {
 /* ================= LOGIN PAGE ================= */
 .login-container {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
+  gap: 20px;
   min-height: 100vh;
   padding: 20px;
 }
@@ -338,6 +340,13 @@ body {
 .serial-no {
   color: #0e7490;
   font-weight: 600;
+}
+
+/* กันเลขครุภัณฑ์ / วันที่รับ ตัดขึ้นบรรทัดใหม่กลางตัวเลข (overflow-wrap: break-word ของ .data-table td บังคับตัดถ้าไม่ระบุไว้) */
+.data-table td.serial-no,
+.data-table td.date-cell {
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .btn-delete {
@@ -1250,7 +1259,8 @@ body {
 .writeoff-field-grid .form-group {
   margin-bottom: 4px;
 }
-.writeoff-field-grid input {
+.writeoff-field-grid input,
+.writeoff-field-grid select {
   width: 100%;
   padding: 8px 10px;
   background: #f8fafc;
@@ -1259,9 +1269,14 @@ body {
   color: #0f172a;
   font-size: 0.9rem;
 }
-.writeoff-field-grid input:focus {
+.writeoff-field-grid input:focus,
+.writeoff-field-grid select:focus {
   outline: none;
   border-color: #0891b2;
+}
+/* ช่อง "ระบุ..." ที่โผล่มาใต้ dropdown ตอนเลือก "อื่นๆ" */
+.writeoff-field-grid select + input {
+  margin-top: 6px;
 }
 
 /* ตารางย่อยใน ProvHistory (ดูรายการใน batch) */
@@ -1279,4 +1294,37 @@ body {
   .writeoff-field-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ===== field hint: ข้อความช่วยอธิบายเล็กๆ ใต้ input (เช่นโชว์ "ชื่อจริง" ที่แก้จากตรงนี้ไม่ได้) ===== */
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+/* ===== Footer ===== */
+.app-footer {
+  margin-top: 32px;
+  padding: 18px 12px 0;
+  border-top: 1px solid #e2e8f0;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.app-footer-copyright {
+  margin-top: 4px;
+  color: #94a3b8;
+}
+
+/* หน้า login: อยู่ใน flex column เดียวกับกล่อง login (จัดกึ่งกลางเป็นกลุ่มเดียวกันด้วย gap)
+   ไม่ใช้ position: absolute เพราะจอเตี้ย (เช่น 720px) จะทำให้ซ้อนทับกล่อง login ได้ */
+.login-container .app-footer {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
+  max-width: 420px;
 }

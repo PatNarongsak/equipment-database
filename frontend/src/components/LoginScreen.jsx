@@ -1,3 +1,5 @@
+import Footer from "./Footer";
+
 export default function LoginScreen({
   loginData,
   setLoginData,
@@ -65,6 +67,7 @@ export default function LoginScreen({
           </button>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

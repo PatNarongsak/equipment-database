@@ -7,6 +7,7 @@ import { useAdminPanels } from "./hooks/useAdminPanels";
 import { useQRCode } from "./hooks/useQRCode";
 
 import Header from "./components/Header";
+import Footer from "./components/Footer";
 import LoginScreen from "./components/LoginScreen";
 import EquipmentForm from "./components/EquipmentForm";
 import EquipmentTable from "./components/EquipmentTable";
@@ -20,6 +21,7 @@ import ExportHistoryModal from "./components/modals/ExportHistoryModal";
 import UserManagementModal from "./components/modals/UserManagementModal";
 import EditEquipmentModal from "./components/modals/EditEquipmentModal";
 import WriteoffModal from "./components/modals/WriteoffModal";
+import EquipmentPhotoModal from "./components/modals/EquipmentPhotoModal";
 
 function App() {
   // ---------- Mobile UI state (เล็กพอที่จะเก็บไว้ตรงนี้ ไม่แยก hook) ----------
@@ -152,6 +154,7 @@ function App() {
           editForm={equip.editForm}
           setEditForm={equip.setEditForm}
           editError={equip.editError}
+          editingRawName={equip.editingRawName}
           isSavingEdit={equip.isSavingEdit}
           handleEditSubmit={equip.handleEditSubmit}
           isSuperAdmin={auth.isSuperAdmin}
@@ -164,6 +167,7 @@ function App() {
         setActionMenuItem={equip.setActionMenuItem}
         setQrCodeItem={qr.setQrCodeItem}
         openEditModal={equip.openEditModal}
+        openPhotoModal={equip.openPhotoModal}
         openWriteoffModal={equip.openWriteoffModal}
         isSuperAdmin={auth.isSuperAdmin}
       />
@@ -175,6 +179,19 @@ function App() {
           error={equip.writeoffError}
           isSubmitting={equip.isWritingOff}
           onSubmit={equip.submitWriteoff}
+        />
+      )}
+
+      {equip.showPhotoModal && (
+        <EquipmentPhotoModal
+          onClose={equip.closePhotoModal}
+          item={equip.photoItem}
+          photoPreviewUrl={equip.photoPreviewUrl}
+          isLoadingPhoto={equip.isLoadingPhoto}
+          isUploadingPhoto={equip.isUploadingPhoto}
+          photoError={equip.photoError}
+          onUpload={equip.uploadItemPhoto}
+          onDelete={equip.deleteItemPhoto}
         />
       )}
 
@@ -224,6 +241,8 @@ function App() {
           toggleActionMenu={equip.toggleActionMenu}
         />
       </main>
+
+      <Footer />
     </div>
   );
 }

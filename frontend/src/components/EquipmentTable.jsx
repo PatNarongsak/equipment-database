@@ -59,14 +59,14 @@ export default function EquipmentTable({
           <colgroup>
             {!isGuest ? (
               <>
-                <col style={{ width: "13%" }} />
-                <col style={{ width: "16%" }} />
-                <col style={{ width: "8%" }} />
+                <col style={{ width: "15%" }} />
                 <col style={{ width: "15%" }} />
                 <col style={{ width: "10%" }} />
-                <col style={{ width: "12%" }} />
-                <col style={{ width: "15%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "9%" }} />
                 <col style={{ width: "11%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "12%" }} />
               </>
             ) : (
               <>
@@ -126,7 +126,7 @@ export default function EquipmentTable({
                 <tr key={item.equipment_id}>
                   <td className="serial-no">{item.serial_number}</td>
                   <td>{item.name}</td>
-                  <td>
+                  <td className="date-cell">
                     {item.received_date
                       ? new Date(item.received_date).toLocaleDateString("th-TH")
                       : "-"}

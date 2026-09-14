@@ -3,6 +3,7 @@ export default function EditEquipmentModal({
   editForm,
   setEditForm,
   editError,
+  editingRawName,
   isSavingEdit,
   handleEditSubmit,
   isSuperAdmin,
@@ -35,20 +36,23 @@ export default function EditEquipmentModal({
               />
             </div>
           )}
-          {isSuperAdmin && (
-            <div className="form-group">
-              <label htmlFor="edit-name">ชื่ออุปกรณ์</label>
-              <input
-                id="edit-name"
-                type="text"
-                value={editForm.name}
-                onChange={(e) =>
-                  setEditForm({ ...editForm, name: e.target.value })
-                }
-                required
-              />
-            </div>
-          )}
+          <div className="form-group">
+            <label htmlFor="edit-name">ชื่ออุปกรณ์ (ชื่อที่โชว์บนเว็บ)</label>
+            <input
+              id="edit-name"
+              type="text"
+              value={editForm.name}
+              onChange={(e) =>
+                setEditForm({ ...editForm, name: e.target.value })
+              }
+              required
+            />
+            {editingRawName && editingRawName !== editForm.name && (
+              <p className="field-hint">
+                ชื่อจริงตามไฟล์นำเข้า (ใช้ตอนแทงจำหน่าย): {editingRawName}
+              </p>
+            )}
+          </div>
           {isSuperAdmin && (
             <div className="form-group">
               <label htmlFor="edit-date">วันที่รับ</label>

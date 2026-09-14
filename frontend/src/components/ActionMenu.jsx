@@ -4,6 +4,7 @@ export default function ActionMenu({
   setActionMenuItem,
   setQrCodeItem,
   openEditModal,
+  openPhotoModal,
   openWriteoffModal,
   isSuperAdmin,
 }) {
@@ -31,6 +32,15 @@ export default function ActionMenu({
         className="action-dropdown-item"
       >
         แก้ไข
+      </button>
+      <button
+        onClick={() => {
+          openPhotoModal(actionMenuItem);
+          setActionMenuItem(null);
+        }}
+        className="action-dropdown-item"
+      >
+        รูปภาพครุภัณฑ์
       </button>
       {isSuperAdmin && (
         <button
