@@ -13,6 +13,7 @@ export default function EquipmentTable({
   openScanner,
   handleStatusChange,
   toggleActionMenu,
+  openPhotoModal,
 }) {
   return (
     <div className="card list-card">
@@ -70,9 +71,10 @@ export default function EquipmentTable({
               </>
             ) : (
               <>
-                <col style={{ width: "35%" }} />
-                <col style={{ width: "40%" }} />
-                <col style={{ width: "25%" }} />
+                <col style={{ width: "30%" }} />
+                <col style={{ width: "32%" }} />
+                <col style={{ width: "20%" }} />
+                <col style={{ width: "18%" }} />
               </>
             )}
           </colgroup>
@@ -93,19 +95,20 @@ export default function EquipmentTable({
                 <th>ชื่ออุปกรณ์</th>
                 <th>สถานที่</th>
                 <th>ผู้รับผิดชอบ</th>
+                <th>รูปภาพ</th>
               </tr>
             )}
           </thead>
           <tbody>
             {isLoadingList ? (
               <tr>
-                <td colSpan={isGuest ? 3 : 8} style={{ textAlign: "center" }}>
+                <td colSpan={isGuest ? 4 : 8} style={{ textAlign: "center" }}>
                   กำลังโหลดข้อมูล...
                 </td>
               </tr>
             ) : filteredEquipments.length === 0 ? (
               <tr>
-                <td colSpan={isGuest ? 3 : 8} style={{ textAlign: "center" }}>
+                <td colSpan={isGuest ? 4 : 8} style={{ textAlign: "center" }}>
                   ไม่พบข้อมูลครุภัณฑ์
                 </td>
               </tr>
@@ -119,6 +122,15 @@ export default function EquipmentTable({
                       : "-"}
                   </td>
                   <td>{item.responsible_person || "-"}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn-link"
+                      onClick={() => openPhotoModal(item)}
+                    >
+                      ดูรูปภาพ
+                    </button>
+                  </td>
                 </tr>
               ))
             ) : (

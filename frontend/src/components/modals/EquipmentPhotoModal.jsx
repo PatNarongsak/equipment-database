@@ -9,6 +9,7 @@ export default function EquipmentPhotoModal({
   photoError,
   onUpload,
   onDelete,
+  canManage, // true = super_admin ขึ้นไป (อัปโหลด/ลบได้) — false = ดูได้อย่างเดียว (admin ทั่วไป/ผู้มาเยือน)
 }) {
   if (!item) return null;
 
@@ -40,25 +41,27 @@ export default function EquipmentPhotoModal({
           <p className="field-hint">ยังไม่มีรูปภาพ</p>
         )}
 
-        <div className="form-group" style={{ marginTop: 14 }}>
-          <label>{photoPreviewUrl ? "เปลี่ยนรูปภาพ" : "เพิ่มรูปภาพ"}</label>
-          <input
-            type="file"
-            accept="image/*"
-            disabled={isUploadingPhoto}
-            onChange={(e) => {
-              const file = e.target.files[0];
-              if (file) onUpload(file);
-              e.target.value = "";
-            }}
-          />
-          {isUploadingPhoto && <p className="field-hint">กำลังอัปโหลด...</p>}
-        </div>
+        {canManage && (
+          <div className="form-group" style={{ marginTop: 14 }}>
+            <label>{photoPreviewUrl ? "เปลี่ยนรูปภาพ" : "เพิ่มรูปภาพ"}</label>
+            <input
+              type="file"
+              accept="image/*"
+              disabled={isUploadingPhoto}
+              onChange={(e) => {
+                const file = e.target.files[0];
+                if (file) onUpload(file);
+                e.target.value = "";
+              }}
+            />
+            {isUploadingPhoto && <p className="field-hint">กำลังอัปโหลด...</p>}
+          </div>
+        )}
 
         {photoError && <div className="error-banner">{photoError}</div>}
 
         <div className="modal-actions">
-          {photoPreviewUrl && (
+          {canManage && photoPreviewUrl && (
             <button
               type="button"
               className="btn-danger"

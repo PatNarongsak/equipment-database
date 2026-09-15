@@ -260,9 +260,13 @@ app.get('/api/equipments', (req, res) => {
           LEFT JOIN equipment_photos p ON p.equipment_id = e.equipment_id
           ORDER BY e.equipment_id DESC
         `).all()
-      : db.prepare(
-          'SELECT equipment_id, name, building, room, responsible_person FROM equipments ORDER BY equipment_id DESC'
-        ).all()
+      : db.prepare(`
+          SELECT e.equipment_id, e.name, e.building, e.room, e.responsible_person,
+            CASE WHEN p.equipment_id IS NOT NULL THEN 1 ELSE 0 END AS has_ref_photo
+          FROM equipments e
+          LEFT JOIN equipment_photos p ON p.equipment_id = e.equipment_id
+          ORDER BY e.equipment_id DESC
+        `).all()
 
     res.json({ success: true, data: rows })
   } catch (err) {
@@ -402,12 +406,13 @@ app.patch('/api/equipments/:id/status', verifyToken, (req, res) => {
   }
 })
 
-// ---------- รูปภาพอ้างอิงของครุภัณฑ์ (ต้อง login - admin ทุกระดับทำได้) ----------
+// ---------- รูปภาพอ้างอิงของครุภัณฑ์ ----------
 // คนละเรื่องกับรูปตอนแทงจำหน่ายโดยสิ้นเชิง - แค่ไว้ดูหน้าตาครุภัณฑ์ ไม่ถูกใช้ที่อื่นเลย
 // เก็บได้ทีละ 1 รูปต่อรายการ (upload ใหม่ = แทนที่รูปเดิม) กันพื้นที่ในเซิร์ฟเวอร์บาน
+// ดู: เปิดสาธารณะ (ผู้มาเยือนดูได้ด้วย) / อัปโหลด-ลบ: เฉพาะ super_admin ขึ้นไป (admin ทั่วไปดูได้อย่างเดียว)
 
-// อัปโหลด/แทนที่รูป
-app.post('/api/equipments/:id/photo', verifyToken, uploadPhoto.single('photo'), async (req, res) => {
+// อัปโหลด/แทนที่รูป (เฉพาะ super_admin ขึ้นไป)
+app.post('/api/equipments/:id/photo', verifyToken, requireSuperAdmin, uploadPhoto.single('photo'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'กรุณาแนบรูปภาพ' })
   }
@@ -443,8 +448,8 @@ app.post('/api/equipments/:id/photo', verifyToken, uploadPhoto.single('photo'), 
   }
 })
 
-// ดึงรูป (ส่งเป็น JPEG ดิบ)
-app.get('/api/equipments/:id/photo', verifyToken, (req, res) => {
+// ดึงรูป (ส่งเป็น JPEG ดิบ) - เปิดสาธารณะ ผู้มาเยือนดูได้โดยไม่ต้อง login
+app.get('/api/equipments/:id/photo', (req, res) => {
   try {
     const row = db.prepare('SELECT image FROM equipment_photos WHERE equipment_id = ?').get(req.params.id)
     if (!row) {
@@ -458,8 +463,8 @@ app.get('/api/equipments/:id/photo', verifyToken, (req, res) => {
   }
 })
 
-// ลบรูป
-app.delete('/api/equipments/:id/photo', verifyToken, (req, res) => {
+// ลบรูป (เฉพาะ super_admin ขึ้นไป)
+app.delete('/api/equipments/:id/photo', verifyToken, requireSuperAdmin, (req, res) => {
   try {
     const existing = db.prepare('SELECT equipment_id, serial_number FROM equipments WHERE equipment_id = ?').get(req.params.id)
     const info = db.prepare('DELETE FROM equipment_photos WHERE equipment_id = ?').run(req.params.id)

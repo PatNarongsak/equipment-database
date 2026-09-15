@@ -192,6 +192,7 @@ function App() {
           photoError={equip.photoError}
           onUpload={equip.uploadItemPhoto}
           onDelete={equip.deleteItemPhoto}
+          canManage={auth.isSuperAdmin}
         />
       )}
 
@@ -239,6 +240,7 @@ function App() {
           openScanner={qr.openScanner}
           handleStatusChange={equip.handleStatusChange}
           toggleActionMenu={equip.toggleActionMenu}
+          openPhotoModal={equip.openPhotoModal}
         />
       </main>
 
